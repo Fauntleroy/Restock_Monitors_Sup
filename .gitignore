@@ -1,0 +1,5 @@
+node_modules/
+snapshot.json
+proxies.txt
+proxies - Copy.txt
+.env
