@@ -20,7 +20,7 @@ const WEBHOOKS = {
 };
 
 const REGIONS = {
-  US: { label:'Supreme US', flag:'🇺🇸', baseUrl:'https://us.supreme.com', collection:'all', currency:'USD', webhookKey:'US' },
+  US: { label:'Supreme US', flag:'🇺🇸', baseUrl:'https://shop.supreme.com', collection:'all', currency:'USD', webhookKey:'US' },
   UK: { label:'Supreme UK', flag:'🇬🇧', baseUrl:'https://uk.supreme.com', collection:'all', currency:'GBP', webhookKey:'UK' },
   EU: { label:'Supreme EU', flag:'🇪🇺', baseUrl:'https://eu.supreme.com', collection:'all', currency:'EUR', webhookKey:'EU' },
   JP: { label:'Supreme JP', flag:'🇯🇵', baseUrl:'https://jp.supreme.com', collection:'all', currency:'JPY', webhookKey:'JP' },
@@ -529,7 +529,7 @@ async function postRestockAlert({ region, productTitle, colorway, category, prod
   const webhookUrl = WEBHOOKS[region.webhookKey];
   if (!webhookUrl || webhookUrl.startsWith('PASTE')) return;
 
-  const cooldownKey = `${productTitle}:${colorway || ''}`;
+  const cooldownKey = `${region.webhookKey}:${productTitle}:${colorway || ''}`;
 
   await queueAlert({
     webhookUrl,
