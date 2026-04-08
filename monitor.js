@@ -6,9 +6,17 @@
 //   2. Paste your Discord webhook URLs below
 //   3. Run: node monitor.js
 
-import fetch from 'node-fetch';
-import fs    from 'fs';
+import fetch  from 'node-fetch';
+import fs     from 'fs';
+import http   from 'http';
 import { HttpsProxyAgent } from 'https-proxy-agent';
+
+// ─── HEALTH CHECK SERVER (Railway requires an HTTP listener) ──────────────────
+const PORT = process.env.PORT || 3000;
+http.createServer((req, res) => {
+  res.writeHead(200);
+  res.end('OK');
+}).listen(PORT, () => console.log(`[Health] Listening on port ${PORT}`));
 
 // ─── CONFIG ──────────────────────────────────────────────────────────────────
 
@@ -230,12 +238,14 @@ async function fetchAllProducts(region) {
 // ─── RESALE LOOKUP ────────────────────────────────────────────────────────────
 //
 // Strategy:
-//   1. Query Grailed's Algolia index for sold Supreme listings — no API key needed,
-//      credentials are public and embedded in Grailed's SSR page (__NEXT_DATA__).
-//   2. Extract sold_price (or price.amount) from hits, compute median.
-//   3. Bootstrap credentials from Grailed's homepage so they auto-update if rotated;
-//      fall back to hardcoded values if the page fetch fails.
-//   4. Build a GOAT search URL for the item link (no scraping needed).
+//   1. KicksDB StockX API (primary) — search by title+colorway, get avg_price +
+//      per-size lowest_ask. Requires KICKSDB_API_KEY env var.
+//   2. Grailed Algolia (fallback) — scrapes public sold listings if KicksDB
+//      has no data or key is not set.
+//   3. Build a StockX direct link from the slug if found, else GOAT search URL.
+
+const KICKSDB_API_KEY = process.env.KICKSDB_API_KEY || '';
+const KICKSDB_BASE    = 'https://api.kicks.dev';
 
 const resaleCache  = new Map();
 const priceHistory = new Map();
@@ -244,6 +254,56 @@ const SIZE_MAP = {
   'XSmall':'XS','X-Small':'XS','Small':'S','Medium':'M','Large':'L',
   'XLarge':'XL','X-Large':'XL','XXLarge':'XXL','XX-Large':'XXL',
 };
+
+// ── KicksDB helpers ───────────────────────────────────────────────────────────
+
+async function kicksdbSearch(query) {
+  if (!KICKSDB_API_KEY) return null;
+  const ctrl  = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), REQUEST_TIMEOUT);
+  try {
+    const res = await fetch(
+      `${KICKSDB_BASE}/v3/stockx/products?query=${encodeURIComponent(query)}`,
+      {
+        headers: { 'Authorization': KICKSDB_API_KEY, 'Accept': 'application/json' },
+        signal: ctrl.signal,
+      }
+    );
+    clearTimeout(timer);
+    if (!res.ok) { console.warn(`[KicksDB] Search ${res.status}`); return null; }
+    const data = await res.json();
+    return data.data?.[0] || null; // top result
+  } catch (err) {
+    clearTimeout(timer);
+    console.warn(`[KicksDB] Search failed: ${err.message}`);
+    return null;
+  }
+}
+
+async function kicksdbVariants(productId) {
+  if (!KICKSDB_API_KEY) return null;
+  const ctrl  = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), REQUEST_TIMEOUT);
+  try {
+    const res = await fetch(
+      `${KICKSDB_BASE}/v3/stockx/products/${productId}?display[variants]=true`,
+      {
+        headers: { 'Authorization': KICKSDB_API_KEY, 'Accept': 'application/json' },
+        signal: ctrl.signal,
+      }
+    );
+    clearTimeout(timer);
+    if (!res.ok) { console.warn(`[KicksDB] Variants ${res.status}`); return null; }
+    const data = await res.json();
+    return data.data?.variants || null;
+  } catch (err) {
+    clearTimeout(timer);
+    console.warn(`[KicksDB] Variants failed: ${err.message}`);
+    return null;
+  }
+}
+
+// ── Grailed Algolia fallback ──────────────────────────────────────────────────
 
 // Grailed Algolia — public credentials (refreshed from __NEXT_DATA__ each session)
 const GRAILED_ALGOLIA = {
@@ -288,8 +348,7 @@ async function refreshGrailedCredentials() {
   }
 }
 
-// Helper: query a single Grailed Algolia index and return extracted prices
-async function grailedQuery(index, query, priceField) {
+async function grailedQuery(index, query) {
   const { appId, searchKey } = GRAILED_ALGOLIA;
   const ctrl  = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), REQUEST_TIMEOUT);
@@ -335,60 +394,86 @@ async function fetchResaleData(title, colorway, sku, handle) {
   const cached = resaleCache.get(key);
   if (cached && Date.now() - cached.fetchedAt < 5 * 60 * 1000) return cached;
 
-  // Build a GOAT search link from title + colorway (no scraping — just a URL)
   const goatQuery = encodeURIComponent(`supreme ${title}${colorway ? ' ' + colorway : ''}`);
   const goatUrl   = `https://www.goat.com/search?query=${goatQuery}`;
 
   let overallResale = null;
-  let resaleSource  = 'Grailed (sold)';
+  let sizeResale    = {};
+  let resaleSource  = null;
+  let stockxUrl     = goatUrl;
 
-  // ── Grailed Algolia — try progressively broader queries ─────────────────────
-  await refreshGrailedCredentials();
+  // ── Pass 1: KicksDB StockX (primary) ─────────────────────────────────────────
+  if (KICKSDB_API_KEY) {
+    const searchQuery = `Supreme ${title}${colorway ? ' ' + colorway : ''}`;
+    console.log(`[Resale] KicksDB lookup: "${searchQuery}"`);
+    const product = await kicksdbSearch(searchQuery);
 
-  // Build a list of queries to try: full → title-only → first-3-words
-  const words       = title.split(/\s+/);
-  const shortTitle  = words.slice(0, Math.max(3, Math.ceil(words.length / 2))).join(' ');
-  const queries = [
-    `Supreme ${title}${colorway ? ' ' + colorway : ''}`,
-    `Supreme ${title}`,
-    `Supreme ${shortTitle}`,
-  ].filter((q, i, arr) => arr.indexOf(q) === i); // dedupe
+    if (product) {
+      console.log(`[Resale] KicksDB ✓ "${product.title}" — avg: $${product.avg_price} (rank: ${product.rank})`);
+      overallResale = product.avg_price ? Math.round(product.avg_price) : null;
+      resaleSource  = 'StockX (KicksDB)';
+      if (product.link) stockxUrl = product.link;
 
-  console.log(`[Resale] Grailed sold lookup: "${queries[0]}"`);
-
-  try {
-    // ── Pass 1: sold index ─────────────────────────────────────────────────────
-    for (const q of queries) {
-      const hits   = await grailedQuery(GRAILED_ALGOLIA.soldIndex, q, 'sold_price');
-      const result = medianPrice(hits);
-      if (result) {
-        overallResale = result.median;
-        resaleSource  = 'Grailed (sold)';
-        console.log(`[Resale] Grailed sold ✓ "${title}" — median: $${overallResale} (${result.count} listings, query: "${q}")`);
-        break;
+      // Fetch per-size lowest_ask
+      const variants = await kicksdbVariants(product.id);
+      if (variants?.length) {
+        for (const v of variants) {
+          if (v.size && v.lowest_ask) {
+            const sizeKey = v.size.toString().toUpperCase().replace('US ', '');
+            sizeResale[sizeKey] = v.lowest_ask;
+          }
+        }
+        console.log(`[Resale] KicksDB variants: ${Object.keys(sizeResale).length} sizes with ask data`);
       }
-      console.log(`[Resale] Grailed sold: 0 hits for "${q}"`);
+    } else {
+      console.log(`[Resale] KicksDB: no results for "${searchQuery}" — falling back to Grailed`);
     }
+  }
 
-    // ── Pass 2: active listings as fallback (shows current ask prices) ─────────
-    if (overallResale === null) {
-      console.log(`[Resale] No sold data — trying active Grailed listings for asking price...`);
-      // Grailed's main listing index (active, unsold)
+  // ── Pass 2: Grailed Algolia (fallback) ────────────────────────────────────────
+  if (overallResale === null) {
+    await refreshGrailedCredentials();
+
+    const words      = title.split(/\s+/);
+    const shortTitle = words.slice(0, Math.max(3, Math.ceil(words.length / 2))).join(' ');
+    const queries = [
+      `Supreme ${title}${colorway ? ' ' + colorway : ''}`,
+      `Supreme ${title}`,
+      `Supreme ${shortTitle}`,
+    ].filter((q, i, arr) => arr.indexOf(q) === i);
+
+    console.log(`[Resale] Grailed sold lookup: "${queries[0]}"`);
+
+    try {
       for (const q of queries) {
-        const hits   = await grailedQuery('Listing_by_heat_production', q, 'price');
+        const hits   = await grailedQuery(GRAILED_ALGOLIA.soldIndex, q);
         const result = medianPrice(hits);
         if (result) {
           overallResale = result.median;
-          resaleSource  = 'Grailed (ask)';
-          console.log(`[Resale] Grailed ask ✓ "${title}" — median ask: $${overallResale} (${result.count} listings, query: "${q}")`);
+          resaleSource  = 'Grailed (sold)';
+          console.log(`[Resale] Grailed sold ✓ "${title}" — median: $${overallResale} (${result.count} listings, query: "${q}")`);
           break;
         }
-        console.log(`[Resale] Grailed ask: 0 hits for "${q}"`);
+        console.log(`[Resale] Grailed sold: 0 hits for "${q}"`);
       }
-    }
 
-  } catch (err) {
-    console.warn(`[Resale] Grailed fetch failed: ${err.message}`);
+      if (overallResale === null) {
+        console.log(`[Resale] No sold data — trying active Grailed listings...`);
+        for (const q of queries) {
+          const hits   = await grailedQuery('Listing_by_heat_production', q);
+          const result = medianPrice(hits);
+          if (result) {
+            overallResale = result.median;
+            resaleSource  = 'Grailed (ask)';
+            console.log(`[Resale] Grailed ask ✓ "${title}" — median ask: $${overallResale} (${result.count} listings, query: "${q}")`);
+            break;
+          }
+          console.log(`[Resale] Grailed ask: 0 hits for "${q}"`);
+        }
+      }
+    } catch (err) {
+      console.warn(`[Resale] Grailed fetch failed: ${err.message}`);
+    }
   }
 
   if (overallResale) {
@@ -407,9 +492,9 @@ async function fetchResaleData(title, colorway, sku, handle) {
 
   const result = {
     overallResale,
-    sizeResale: {},
+    sizeResale,
     trend,
-    stockxUrl: goatUrl,
+    stockxUrl,
     source: resaleSource,
     fetchedAt: Date.now(),
   };
@@ -474,7 +559,7 @@ const fmt = n => n != null ? `$${Number(n).toFixed(0)}` : null;
 
 async function postRestockAlert({ region, productTitle, colorway, category, productUrl, imageUrl, restocked, allInStock, isNewItem, resaleData, retailPrice }) {
   const { overallResale, sizeResale, trend, stockxUrl, source } = resaleData;
-  const resaleLabel = source === 'Grailed (ask)' ? '💰 Avg Ask (Grailed)' : '💰 Avg Resale';
+  const resaleLabel = source === 'StockX (KicksDB)' ? '💰 Avg (StockX)' : source === 'Grailed (ask)' ? '💰 Avg Ask (Grailed)' : '💰 Avg Resale (Grailed)';
   const hasData = overallResale != null || Object.keys(sizeResale).length > 0;
 
   const buildLine = (v, isNew = false) => {
