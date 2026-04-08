@@ -12,7 +12,7 @@ import http   from 'http';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 
 // ─── HEALTH CHECK SERVER (Railway requires an HTTP listener) ──────────────────
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 8080;
 http.createServer((req, res) => {
   res.writeHead(200);
   res.end('OK');
