@@ -795,7 +795,7 @@ async function pollCycle() {
 async function main() {
   console.log('🔴 Supreme Monitor starting...');
 
-  const activeWebhooks = Object.entries(WEBHOOKS).filter(([, v]) => !v.startsWith('PASTE'));
+  const activeWebhooks = Object.entries(WEBHOOKS).filter(([, v]) => v && !v.startsWith('PASTE'));
   if (!activeWebhooks.length) {
     console.error('No webhooks configured! Paste your Discord webhook URLs in the WEBHOOKS config.');
     process.exit(1);
