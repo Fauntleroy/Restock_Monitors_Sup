@@ -34,7 +34,7 @@ const REGIONS = {
   JP: { label:'Supreme JP', flag:'🇯🇵', baseUrl:'https://jp.supreme.com', collection:'all', currency:'JPY', webhookKey:'JP' },
 };
 
-const SLOW_POLL_MS      = 30 * 1000;       // 30 sec quiet mode
+const SLOW_POLL_MS      = 60 * 1000;       // 1 min quiet mode
 const FAST_POLL_MS      = 15 * 1000;      // 15 sec wave mode (safe from 429s)
 const REQUEST_TIMEOUT   = 15 * 1000;
 const SNAPSHOT_FILE     = process.env.SNAPSHOT_PATH || 'snapshot.json';
