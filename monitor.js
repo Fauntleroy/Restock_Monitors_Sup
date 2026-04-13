@@ -625,7 +625,7 @@ async function postRestockAlert({ region, productTitle, colorway, category, prod
         color,
         thumbnail:   imageUrl ? { url: imageUrl } : undefined,
         fields,
-        footer:      { text: `Finest Monitors | ${region.label}` },
+        footer:      { text: `Finest Monitors | ${region.label} | ${new Date().toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true, timeZoneName: 'short' })}` },
         timestamp:   new Date().toISOString(),
       }],
     },
