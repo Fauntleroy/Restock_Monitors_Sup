@@ -163,9 +163,9 @@ async function fetchPage(url) {
     }
 
     proxyPool.ok(proxy);
-    const finalHost    = new URL(res.url).hostname;
+    const finalHost     = new URL(res.url).hostname;
     const requestedHost = new URL(url).hostname;
-    if (finalHost !== requestedHost) {
+    if (finalHost !== requestedHost && requestedHost !== 'shop.supreme.com') {
       console.warn(`[Redirect] ${requestedHost} → ${finalHost}`);
     }
     return await res.text();
