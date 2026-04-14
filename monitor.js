@@ -163,6 +163,11 @@ async function fetchPage(url) {
     }
 
     proxyPool.ok(proxy);
+    const finalHost    = new URL(res.url).hostname;
+    const requestedHost = new URL(url).hostname;
+    if (finalHost !== requestedHost) {
+      console.warn(`[Redirect] ${requestedHost} → ${finalHost}`);
+    }
     return await res.text();
 
   } catch (err) {
