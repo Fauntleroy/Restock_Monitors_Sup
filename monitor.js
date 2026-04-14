@@ -34,6 +34,13 @@ const REGIONS = {
   JP: { label:'Supreme JP', flag:'🇯🇵', baseUrl:'https://jp.supreme.com', collection:'all', currency:'JPY', webhookKey:'JP' },
 };
 
+// ACTIVE_REGIONS env var controls which regions this instance monitors
+// e.g. ACTIVE_REGIONS=US or ACTIVE_REGIONS=UK,EU
+// If not set, all regions with a webhook configured will run
+const ACTIVE_REGIONS = process.env.ACTIVE_REGIONS
+  ? process.env.ACTIVE_REGIONS.split(',').map(r => r.trim().toUpperCase())
+  : null;
+
 const SLOW_POLL_MS      = 60 * 1000;       // 1 min quiet mode
 const FAST_POLL_MS      = 15 * 1000;      // 15 sec wave mode (safe from 429s)
 const REQUEST_TIMEOUT   = 15 * 1000;
@@ -784,7 +791,9 @@ async function pollCycle() {
 
   const activeRegions = Object.values(REGIONS).filter(r => {
     const w = WEBHOOKS[r.webhookKey];
-    return w && !w.startsWith('PASTE');
+    if (!w || w.startsWith('PASTE')) return false;
+    if (ACTIVE_REGIONS && !ACTIVE_REGIONS.includes(r.webhookKey)) return false;
+    return true;
   });
 
   await Promise.allSettled(activeRegions.map(r => checkStock(r)));
