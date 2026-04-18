@@ -689,6 +689,10 @@ async function checkStock(region) {
     return;
   }
 
+  // Log first 3 product names for region verification
+  const sample = products.slice(0, 3).map(p => `${p.title}${p.color ? ' — ' + p.color : ''}`);
+  console.log(`[${ts()}][${region.webhookKey}] ${products.length} products | Sample: ${sample.join(' | ')}`);
+
   if (!complete) {
     console.warn(`[${ts()}][${region.webhookKey}] Incomplete fetch — alerting on partial data, snapshot unchanged`);
   }
