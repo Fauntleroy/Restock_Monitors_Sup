@@ -28,10 +28,10 @@ const WEBHOOKS = {
 };
 
 const REGIONS = {
-  US: { label:'Supreme US', flag:'🇺🇸', baseUrl:'https://us.supreme.com', collection:'all', currency:'USD', webhookKey:'US' },
-  UK: { label:'Supreme UK', flag:'🇬🇧', baseUrl:'https://uk.supreme.com', collection:'all', currency:'GBP', webhookKey:'UK' },
-  EU: { label:'Supreme EU', flag:'🇪🇺', baseUrl:'https://eu.supreme.com', collection:'all', currency:'EUR', webhookKey:'EU' },
-  JP: { label:'Supreme JP', flag:'🇯🇵', baseUrl:'https://jp.supreme.com', collection:'all', currency:'JPY', webhookKey:'JP' },
+  US: { label:'Supreme US', flag:'🇺🇸', baseUrl:'https://us.supreme.com', collections:['new','shoes','all'], currency:'USD', webhookKey:'US' },
+  UK: { label:'Supreme UK', flag:'🇬🇧', baseUrl:'https://uk.supreme.com', collections:['new','shoes','all'], currency:'GBP', webhookKey:'UK' },
+  EU: { label:'Supreme EU', flag:'🇪🇺', baseUrl:'https://eu.supreme.com', collections:['new','shoes','all'], currency:'EUR', webhookKey:'EU' },
+  JP: { label:'Supreme JP', flag:'🇯🇵', baseUrl:'https://jp.supreme.com', collections:['new','shoes','all'], currency:'JPY', webhookKey:'JP' },
 };
 
 // ACTIVE_REGIONS env var controls which regions this instance monitors
@@ -200,11 +200,14 @@ function parseProductsFromHtml(html) {
 
 async function fetchAllProducts(region) {
   const allProducts = [];
+  const seenIds = new Set();
   let complete = true;
+  const collections = region.collections || [region.collection || 'all'];
 
+  for (const collection of collections) {
   let page = 1;
   while (true) {
-    const url = `${region.baseUrl}/collections/${region.collection}?page=${page}`;
+    const url = `${region.baseUrl}/collections/${collection}?page=${page}`;
     let html;
     let fetchError;
     for (let attempt = 1; attempt <= 3; attempt++) {
@@ -235,14 +238,21 @@ async function fetchAllProducts(region) {
       break;
     }
 
-    allProducts.push(...data.products);
+    for (const product of data.products) {
+      const pid = product.url || product.title;
+      if (!seenIds.has(pid)) {
+        seenIds.add(pid);
+        allProducts.push(product);
+      }
+    }
 
     const total = data.allProductsCount || 0;
-    if (allProducts.length >= total || data.products.length < 250) break;
+    if (seenIds.size >= total || data.products.length < 250) break;
 
     page++;
     await jitter();
   }
+  } // end collections loop
 
   return { products: allProducts, complete };
 }
