@@ -565,7 +565,11 @@ async function processQueue() {
         alertQueue.unshift(payload);
         await new Promise(r => setTimeout(r, wait));
       } else if (!res.ok) {
-        console.error(`[Discord] ${res.status} — ${await res.text()}`);
+        const errText = await res.text();
+        console.error(`[Discord] ${res.status} — ${errText}`);
+        if (res.status === 400) {
+          console.error(`[Discord] Payload debug: ${JSON.stringify(payload.body.embeds?.[0]?.title)} | fields: ${payload.body.embeds?.[0]?.fields?.map(f => f.name + '=' + (f.value?.slice(0,30) || 'EMPTY')).join(', ')}`);
+        }
       }
     } catch (err) {
       console.error(`[Discord] Send failed: ${err.message}`);
@@ -621,7 +625,7 @@ async function postRestockAlert({ region, productTitle, colorway, category, prod
 
   fields.push(
     { name: '🗂️ Category',             value: category || '—',  inline: true },
-    { name: `${region.flag} Region`,   value: region.label,     inline: true },
+    { name: `${region.flag} Region`,   value: region.label || '—',     inline: true },
     { name: '🔗 GOAT',                 value: stockxUrl ? `[Search GOAT](${stockxUrl})` : 'N/A', inline: true },
     { name: `🔔 Just Restocked (${restocked.length})`,  value: restockedLines || '—', inline: false },
     {
@@ -632,6 +636,11 @@ async function postRestockAlert({ region, productTitle, colorway, category, prod
       inline: false,
     },
   );
+
+  // Ensure no empty field values — Discord rejects embeds with empty strings
+  for (const f of fields) {
+    if (!f.value || f.value.trim() === '') f.value = '—';
+  }
 
   const webhookUrl = WEBHOOKS[region.webhookKey];
   if (!webhookUrl || webhookUrl.startsWith('PASTE')) return;
