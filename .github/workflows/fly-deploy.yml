@@ -1,0 +1,27 @@
+name: Fly Deploy
+on:
+  push:
+    branches:
+      - main
+jobs:
+  deploy-jp:
+    name: Deploy JP (Tokyo)
+    runs-on: ubuntu-latest
+    concurrency: deploy-jp
+    steps:
+      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - run: flyctl deploy --remote-only --config fly.toml
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+  deploy-uk:
+    name: Deploy UK (London)
+    runs-on: ubuntu-latest
+    concurrency: deploy-uk
+    steps:
+      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - run: flyctl deploy --remote-only --config fly.uk.toml
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
