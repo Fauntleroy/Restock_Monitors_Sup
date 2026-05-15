@@ -5,8 +5,8 @@ const PORT = process.env.PORT || 8080;
 const TARGET = process.env.TARGET_URL || 'https://us.supreme.com/collections/all';
 
 // Intervals to test (in seconds) — ramps up aggression
-const INTERVALS = [60, 30, 15, 10, 5, 3, 2, 1];
-const REQUESTS_PER_INTERVAL = 10; // send 10 requests at each speed before moving on
+const INTERVALS = [5, 3, 2, 1];
+const REQUESTS_PER_INTERVAL = 20; // send 20 requests at each speed before moving on
 
 let results = [];
 let running = true;
