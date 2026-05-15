@@ -51,10 +51,10 @@ async function ping(intervalSec, attempt) {
     if (res.status === 403) { signal = '🚫 403 FORBIDDEN'; banned = true; }
     else if (res.status === 429) { signal = '🚫 429 RATE LIMITED'; banned = true; }
     else if (res.status === 503) { signal = '⚠️ 503 SERVICE UNAVAIL'; banned = true; }
+    else if (hasProducts) { signal = '✅ OK'; }
     else if (hasChallenge) { signal = '⚠️ CHALLENGE'; banned = true; }
-    else if (bodyLen < 1000) { signal = '⚠️ SHORT RESPONSE'; }
-    else if (!hasProducts) { signal = '⚠️ NO PRODUCTS'; }
-    else { signal = '✅ OK'; }
+    else if (bodyLen < 1000) { signal = '⚠️ SHORT RESPONSE'; banned = true; }
+    else { signal = '⚠️ NO PRODUCTS'; }
 
     // Only log every 10th request to keep logs clean, or if there's a problem
     if (attempt % 10 === 0 || attempt === 1 || banned || !hasProducts) {
