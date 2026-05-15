@@ -6,7 +6,7 @@ const TARGET = process.env.TARGET_URL || 'https://us.supreme.com/collections/all
 
 // Intervals to test (in seconds) — ramps up aggression
 const INTERVALS = [5, 3, 2, 1];
-const REQUESTS_PER_INTERVAL = 20; // send 20 requests at each speed before moving on
+const REQUESTS_PER_INTERVAL = 120; // 120 requests = 10 min at 5s, ~6 min at 3s, etc.
 
 let results = [];
 let running = true;
