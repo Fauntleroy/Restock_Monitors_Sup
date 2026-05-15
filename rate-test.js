@@ -3,6 +3,7 @@ import http from 'http';
 
 const PORT = process.env.PORT || 8080;
 const TARGET = process.env.TARGET_URL || 'https://us.supreme.com/collections/all';
+const DISCORD_WEBHOOK = process.env.TEST_WEBHOOK || 'https://discord.com/api/webhooks/1504986509571391649/V9v2HrDRDTGnwk-CvhZb3acR85B-CyPHoVjriCA1foeu_3NU_HsoksVUP9pBVOUP-f5x';
 
 // Phase 1: 5s for 10 min, Phase 2: 3s for 10 min, Phase 3: 1s for 10 min
 // If all pass, Phase 4: 1s for 24 hours
@@ -16,6 +17,27 @@ const PHASES = [
 let results = [];
 let currentPhase = null;
 let phaseStats = { ok: 0, warn: 0, ban: 0, total: 0 };
+
+// Discord notification
+async function notify(title, description, color = 0x00ff00) {
+  try {
+    await fetch(DISCORD_WEBHOOK, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        embeds: [{
+          title,
+          description,
+          color,
+          footer: { text: 'Supreme Rate Test' },
+          timestamp: new Date().toISOString(),
+        }],
+      }),
+    });
+  } catch (err) {
+    console.log(`[Discord] Failed to send: ${err.message}`);
+  }
+}
 
 // Health check
 http.createServer((req, res) => {
@@ -62,7 +84,6 @@ async function ping(intervalSec, attempt) {
     }
 
     results.push({ interval: intervalSec, attempt, signal, status: res.status, elapsed, bodyLen, time: new Date().toISOString() });
-    // Keep results array from growing forever
     if (results.length > 500) results = results.slice(-250);
 
     return banned;
@@ -84,6 +105,8 @@ async function runTest() {
   console.log(`Phases: ${PHASES.map(p => p.label).join(' → ')}`);
   console.log(`========================================\n`);
 
+  await notify('🚀 Rate Test Started', `Target: ${TARGET}\nPhases: ${PHASES.map(p => p.label).join(' → ')}`, 0x3498db);
+
   for (let p = 0; p < PHASES.length; p++) {
     const phase = PHASES[p];
     currentPhase = phase.label;
@@ -92,6 +115,7 @@ async function runTest() {
 
     const totalRequests = Math.floor(phase.duration / (phase.interval * 1000));
     console.log(`\n━━━ PHASE ${p + 1}: ${phase.label} (${totalRequests} requests) ━━━`);
+    await notify(`⏱️ Phase ${p + 1} Starting`, `**${phase.label}**\n${totalRequests} requests`, 0x3498db);
 
     const phaseStart = Date.now();
 
@@ -112,7 +136,7 @@ async function runTest() {
         const elapsed = Math.round((Date.now() - phaseStart) / 1000);
         console.log(`\n🛑 BANNED at ${phase.interval}s after ${elapsed}s (${i} requests)`);
         console.log(`Stats: ${phaseStats.ok} OK / ${phaseStats.ban} banned out of ${phaseStats.total}`);
-        console.log(`\nSafe limit is somewhere above ${phase.interval}s`);
+        await notify('🛑 BANNED', `**Interval: ${phase.interval}s**\nBanned after ${elapsed}s (${i} requests)\n${phaseStats.ok} OK / ${phaseStats.ban} banned\n\nSafe limit is above ${phase.interval}s`, 0xff0000);
         console.log(`Process staying alive for health check inspection.`);
         await sleep(999999999);
         return;
@@ -132,6 +156,7 @@ async function runTest() {
     const pct = ((phaseStats.ok / phaseStats.total) * 100).toFixed(1);
     console.log(`\n✅ PHASE ${p + 1} PASSED: ${phase.label}`);
     console.log(`   ${phaseStats.ok}/${phaseStats.total} OK (${pct}%) in ${elapsed}s | ${phaseStats.ban} banned`);
+    await notify(`✅ Phase ${p + 1} Passed`, `**${phase.label}**\n${phaseStats.ok}/${phaseStats.total} OK (${pct}%)\n${phaseStats.ban} banned in ${elapsed}s`, 0x00ff00);
 
     if (p < PHASES.length - 1) {
       console.log(`\n⏳ 30s cooldown before next phase...\n`);
@@ -140,6 +165,7 @@ async function runTest() {
   }
 
   console.log(`\n🏆 ALL PHASES PASSED — Supreme allows 1 req/sec sustained for 24 hours!`);
+  await notify('🏆 ALL PHASES PASSED', 'Supreme allows **1 request per second** sustained for 24 hours!', 0xffd700);
   console.log(`Process staying alive for health check inspection.`);
   await sleep(999999999);
 }
