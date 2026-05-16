@@ -25,6 +25,7 @@ const WEBHOOKS = {
   UK: process.env.WEBHOOK_UK || '',
   EU: process.env.WEBHOOK_EU || '',
   JP: process.env.WEBHOOK_JP || '',
+  ASIA: process.env.WEBHOOK_ASIA || '',
 };
 
 const REGIONS = {
@@ -32,6 +33,7 @@ const REGIONS = {
   UK: { label:'Supreme UK', flag:'🇬🇧', baseUrl:'https://uk.supreme.com', collections:['new','shoes','all'], currency:'GBP', webhookKey:'UK' },
   EU: { label:'Supreme EU', flag:'🇪🇺', baseUrl:'https://eu.supreme.com', collections:['new','shoes','all'], currency:'EUR', webhookKey:'EU' },
   JP: { label:'Supreme JP', flag:'🇯🇵', baseUrl:'https://jp.supreme.com', collections:['new','shoes','all'], currency:'JPY', webhookKey:'JP' },
+  ASIA: { label:'Supreme Asia', flag:'🌏', baseUrl:'https://shop.supreme.com', collections:['new','shoes','all'], currency:'SGD', webhookKey:'ASIA' },
 };
 
 // ACTIVE_REGIONS env var controls which regions this instance monitors
