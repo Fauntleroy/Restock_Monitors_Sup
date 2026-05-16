@@ -25,3 +25,14 @@ jobs:
       - run: flyctl deploy --remote-only --config fly.uk.toml
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+  deploy-asia:
+    name: Deploy Asia (Singapore)
+    runs-on: ubuntu-latest
+    concurrency: deploy-asia
+    steps:
+      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - run: flyctl deploy --remote-only --config fly.asia.toml
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
