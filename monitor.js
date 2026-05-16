@@ -814,7 +814,8 @@ async function checkStock(region) {
 // ─── POLL CYCLE ───────────────────────────────────────────────────────────────
 
 async function pollCycle() {
-  const mode = inWave ? `wave (${FAST_POLL_MS / 1000}s)` : `quiet (${SLOW_POLL_MS / 60000}m)`;
+  const fmtInterval = (ms) => ms >= 60000 ? `${ms / 60000}m` : `${ms / 1000}s`;
+  const mode = inWave ? `wave (${fmtInterval(FAST_POLL_MS)})` : `quiet (${fmtInterval(SLOW_POLL_MS)})`;
   console.log(`[${ts()}] Polling... [${mode}]`);
 
   const activeRegions = Object.values(REGIONS).filter(r => {
