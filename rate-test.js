@@ -5,12 +5,8 @@ const PORT = process.env.PORT || 8080;
 const TARGET = process.env.TARGET_URL || 'https://us.supreme.com/collections/all';
 const DISCORD_WEBHOOK = process.env.TEST_WEBHOOK || 'https://discord.com/api/webhooks/1504986509571391649/V9v2HrDRDTGnwk-CvhZb3acR85B-CyPHoVjriCA1foeu_3NU_HsoksVUP9pBVOUP-f5x';
 
-// Phase 1: 5s for 10 min, Phase 2: 3s for 10 min, Phase 3: 1s for 10 min
-// If all pass, Phase 4: 1s for 24 hours
+// Straight to 1 second for 24 hours
 const PHASES = [
-  { interval: 5, duration: 10 * 60 * 1000, label: '5s for 10 min' },
-  { interval: 3, duration: 10 * 60 * 1000, label: '3s for 10 min' },
-  { interval: 1, duration: 10 * 60 * 1000, label: '1s for 10 min' },
   { interval: 1, duration: 24 * 60 * 60 * 1000, label: '1s for 24 hours' },
 ];
 
