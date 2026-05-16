@@ -41,8 +41,8 @@ const ACTIVE_REGIONS = process.env.ACTIVE_REGIONS
   ? process.env.ACTIVE_REGIONS.split(',').map(r => r.trim().toUpperCase())
   : null;
 
-const SLOW_POLL_MS      = 60 * 1000;       // 1 min quiet mode
-const FAST_POLL_MS      = 15 * 1000;      // 15 sec wave mode (safe from 429s)
+const SLOW_POLL_MS      = process.env.POLL_INTERVAL ? Number(process.env.POLL_INTERVAL) * 1000 : 60 * 1000;       // 1 min quiet mode (or POLL_INTERVAL env override)
+const FAST_POLL_MS      = process.env.POLL_INTERVAL ? Number(process.env.POLL_INTERVAL) * 1000 : 15 * 1000;      // 15 sec wave mode (or POLL_INTERVAL env override)
 const REQUEST_TIMEOUT   = 15 * 1000;
 const SNAPSHOT_FILE     = process.env.SNAPSHOT_PATH || 'snapshot.json';
 
