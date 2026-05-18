@@ -47,6 +47,9 @@ const SLOW_POLL_MS      = 3 * 1000;       // 3 sec quiet mode
 const FAST_POLL_MS      = 3 * 1000;       // 3 sec wave mode (same speed — always fast)
 const REQUEST_TIMEOUT   = 15 * 1000;
 const SNAPSHOT_FILE     = process.env.SNAPSHOT_PATH || 'snapshot.json';
+const RESALE_CACHE_FILE = process.env.RESALE_CACHE_PATH || 'supreme-resale-cache.json';
+const RESALE_REFRESH_MS = 12 * 60 * 60 * 1000;  // refresh resale cache every 12 hours
+const RESALE_DELAY_MS   = 1000;                   // 1s between lookups
 
 // Wave mode: activate Thursday 10:50 AM ET, run until 11:30 AM ET
 const WAVE_START_HOUR   = 10;
@@ -271,8 +274,32 @@ async function fetchAllProducts(region) {
 const KICKSDB_API_KEY = process.env.KICKSDB_API_KEY || '';
 const KICKSDB_BASE    = 'https://api.kicks.dev';
 
-const resaleCache  = new Map();
+const resaleCache  = new Map();   // in-memory (loaded from file)
 const priceHistory = new Map();
+
+// ── Resale cache persistence ─────────────────────────────────────────────────
+
+function loadResaleCache() {
+  try {
+    if (fs.existsSync(RESALE_CACHE_FILE)) {
+      const data = JSON.parse(fs.readFileSync(RESALE_CACHE_FILE, 'utf8'));
+      for (const [k, v] of Object.entries(data)) resaleCache.set(k, v);
+      console.log(`[Resale] Loaded cache: ${resaleCache.size} items`);
+    }
+  } catch (err) {
+    console.error(`[Resale] Failed to load cache: ${err.message}`);
+  }
+}
+
+function saveResaleCacheFile() {
+  try {
+    const obj = {};
+    for (const [k, v] of resaleCache) obj[k] = v;
+    fs.writeFileSync(RESALE_CACHE_FILE, JSON.stringify(obj, null, 2));
+  } catch (err) {
+    console.error(`[Resale] Failed to save cache: ${err.message}`);
+  }
+}
 
 const SIZE_MAP = {
   'XSmall':'XS','X-Small':'XS','Small':'S','Medium':'M','Large':'L',
@@ -416,7 +443,7 @@ function medianPrice(hits) {
 async function fetchResaleData(title, colorway, sku, handle) {
   const key    = `${title}::${colorway || ''}`;
   const cached = resaleCache.get(key);
-  if (cached && Date.now() - cached.fetchedAt < 5 * 60 * 1000) return cached;
+  if (cached && Date.now() - cached.fetchedAt < RESALE_REFRESH_MS) return cached;
 
   const goatQuery = encodeURIComponent(`supreme ${title}${colorway ? ' ' + colorway : ''}`);
   const goatUrl   = `https://www.goat.com/search?query=${goatQuery}`;
@@ -523,9 +550,72 @@ async function fetchResaleData(title, colorway, sku, handle) {
     fetchedAt: Date.now(),
   };
   resaleCache.set(key, result);
+  saveResaleCacheFile();
   return result;
 }
 
+
+// ─── BACKGROUND RESALE CACHE REFRESH ────────────────────────────────────────
+
+async function refreshResaleCache() {
+  // Collect unique product titles from snapshot (US region for resale lookups)
+  const titles = new Set();
+  for (const [key, val] of previousStock) {
+    // key format is "REGION:variantId", val is true/false
+    // We need product titles — grab them from the last fetch cycle
+    // Since previousStock only stores variant availability, we'll re-fetch product list
+  }
+
+  // Fetch US product list to get titles + colorways for resale lookup
+  const usRegion = REGIONS.US;
+  if (!usRegion || !WEBHOOKS.US || WEBHOOKS.US.startsWith('PASTE')) {
+    console.log(`[Resale] No US region configured — skipping cache refresh`);
+    return;
+  }
+
+  console.log(`[Resale] Refreshing cache — fetching US product list...`);
+  try {
+    const { products } = await fetchAllProducts(usRegion);
+    console.log(`[Resale] Found ${products.length} products to cache`);
+
+    let updated = 0;
+    let skipped = 0;
+
+    for (const product of products) {
+      const title    = product.title;
+      const colorway = product.color || null;
+      const sku      = product.variants?.[0]?.sku || null;
+      const handle   = product.handle || null;
+      const key      = `${title}::${colorway || ''}`;
+
+      // Skip if cache is still fresh
+      const cached = resaleCache.get(key);
+      if (cached && Date.now() - cached.fetchedAt < RESALE_REFRESH_MS) {
+        skipped++;
+        continue;
+      }
+
+      const data = await fetchResaleData(title, colorway, sku, handle);
+      if (data?.overallResale) updated++;
+
+      // Be polite — 1s between lookups
+      await new Promise(r => setTimeout(r, RESALE_DELAY_MS));
+    }
+
+    saveResaleCacheFile();
+    console.log(`[Resale] Cache refresh done: ${updated} updated, ${skipped} still fresh, ${products.length} total`);
+  } catch (err) {
+    console.error(`[Resale] Cache refresh failed: ${err.message}`);
+  }
+}
+
+async function resaleCacheLoop() {
+  while (true) {
+    await refreshResaleCache();
+    console.log(`[Resale] Next refresh in ${RESALE_REFRESH_MS / 1000 / 60 / 60}h`);
+    await new Promise(r => setTimeout(r, RESALE_REFRESH_MS));
+  }
+}
 
 // ─── DISCORD RATE LIMIT QUEUE ─────────────────────────────────────────────────
 
@@ -843,7 +933,13 @@ async function main() {
   console.log(`✅ Webhooks active: ${activeWebhooks.map(([k]) => k).join(', ')}`);
 
   loadSnapshot();
+  loadResaleCache();
   checkWaveStatus();
+
+  console.log(`Resale cache: ${resaleCache.size} items, refreshes every ${RESALE_REFRESH_MS / 1000 / 60 / 60}h`);
+
+  // Start resale cache refresh in background (waits 60s for first snapshot to build)
+  setTimeout(() => resaleCacheLoop().catch(err => console.error('[Resale] Loop error:', err)), 60 * 1000);
 
   while (true) {
     try {
