@@ -558,24 +558,23 @@ async function fetchResaleData(title, colorway, sku, handle) {
 // ─── BACKGROUND RESALE CACHE REFRESH ────────────────────────────────────────
 
 async function refreshResaleCache() {
-  // Collect unique product titles from snapshot (US region for resale lookups)
-  const titles = new Set();
-  for (const [key, val] of previousStock) {
-    // key format is "REGION:variantId", val is true/false
-    // We need product titles — grab them from the last fetch cycle
-    // Since previousStock only stores variant availability, we'll re-fetch product list
-  }
+  // Find the first active region to fetch product list from
+  const activeRegion = Object.entries(REGIONS).find(([key, r]) => {
+    const w = WEBHOOKS[r.webhookKey];
+    if (!w || w.startsWith('PASTE')) return false;
+    if (ACTIVE_REGIONS && !ACTIVE_REGIONS.includes(key)) return false;
+    return true;
+  });
 
-  // Fetch US product list to get titles + colorways for resale lookup
-  const usRegion = REGIONS.US;
-  if (!usRegion || !WEBHOOKS.US || WEBHOOKS.US.startsWith('PASTE')) {
-    console.log(`[Resale] No US region configured — skipping cache refresh`);
+  if (!activeRegion) {
+    console.log(`[Resale] No active region — skipping cache refresh`);
     return;
   }
 
-  console.log(`[Resale] Refreshing cache — fetching US product list...`);
+  const [regionKey, region] = activeRegion;
+  console.log(`[Resale] Refreshing cache — fetching ${regionKey} product list...`);
   try {
-    const { products } = await fetchAllProducts(usRegion);
+    const { products } = await fetchAllProducts(region);
     console.log(`[Resale] Found ${products.length} products to cache`);
 
     let updated = 0;
