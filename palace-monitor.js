@@ -20,6 +20,7 @@ const WEBHOOKS = {
   UK: process.env.PALACE_WEBHOOK_UK || '',
   EU: process.env.PALACE_WEBHOOK_EU || '',
   JP: process.env.PALACE_WEBHOOK_JP || '',
+  AU: process.env.PALACE_WEBHOOK_AU || '',
 };
 
 const REGIONS = {
@@ -27,6 +28,7 @@ const REGIONS = {
   UK: { label: 'Palace UK',  flag: '🇬🇧', baseUrl: 'https://palaceskateboards.com',     currency: 'GBP', webhookKey: 'UK' },
   EU: { label: 'Palace EU',  flag: '🇪🇺', baseUrl: 'https://eu.palaceskateboards.com',  currency: 'EUR', webhookKey: 'EU' },
   JP: { label: 'Palace JP',  flag: '🇯🇵', baseUrl: 'https://jp.palaceskateboards.com',  currency: 'JPY', webhookKey: 'JP' },
+  AU: { label: 'Palace AU',  flag: '🇦🇺', baseUrl: 'https://au.palaceskateboards.com',  currency: 'AUD', webhookKey: 'AU' },
 };
 
 const ACTIVE_REGIONS = process.env.ACTIVE_REGIONS
