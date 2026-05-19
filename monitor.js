@@ -93,6 +93,39 @@ function checkWaveStatus() {
   }
 }
 
+// ─── CURRENCY & EXCHANGE RATES ──────────────────────────────────────────────
+// Converts Grailed/StockX USD prices → local currency. Refreshed once per day.
+
+const CURRENCY_SYMBOLS = { USD: '$', GBP: '£', EUR: '€', JPY: '¥', SGD: 'S$' };
+
+let exchangeRates = {};
+let exchangeRatesUpdatedAt = 0;
+const FX_REFRESH_MS = 24 * 60 * 60 * 1000;
+
+async function refreshExchangeRates() {
+  try {
+    const res = await fetch('https://open.er-api.com/v6/latest/USD', {
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    if (data.rates) {
+      exchangeRates = data.rates;
+      exchangeRatesUpdatedAt = Date.now();
+      console.log(`[FX] Rates updated — GBP:${data.rates.GBP} EUR:${data.rates.EUR} JPY:${data.rates.JPY} SGD:${data.rates.SGD}`);
+    }
+  } catch (err) {
+    console.error(`[FX] Failed to fetch rates: ${err.message}`);
+  }
+}
+
+function convertUSD(amount, toCurrency) {
+  if (!amount || toCurrency === 'USD') return amount;
+  const rate = exchangeRates[toCurrency];
+  if (!rate) return null;
+  return Math.round(amount * rate);
+}
+
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 
 const ts     = () => new Date().toISOString().slice(11, 19);
@@ -610,6 +643,9 @@ async function refreshResaleCache() {
 
 async function resaleCacheLoop() {
   while (true) {
+    if (Date.now() - exchangeRatesUpdatedAt > FX_REFRESH_MS) {
+      await refreshExchangeRates();
+    }
     await refreshResaleCache();
     console.log(`[Resale] Next refresh in ${RESALE_REFRESH_MS / 1000 / 60 / 60}h`);
     await new Promise(r => setTimeout(r, RESALE_REFRESH_MS));
@@ -675,16 +711,30 @@ async function processQueue() {
 const fmt = n => n != null ? `$${Number(n).toFixed(0)}` : null;
 
 async function postRestockAlert({ region, productTitle, colorway, category, productUrl, imageUrl, restocked, allInStock, isNewItem, resaleData, retailPrice }) {
-  const { overallResale, sizeResale, trend, stockxUrl, source } = resaleData;
+  const { overallResale: rawResale, sizeResale: rawSizeResale, trend, stockxUrl, source } = resaleData;
+
+  // Convert USD resale → local currency for non-US regions
+  const currCode = region.currency || 'USD';
+  const isConverted = currCode !== 'USD';
+  const sym = CURRENCY_SYMBOLS[currCode] || '$';
+  const approx = isConverted ? '≈' : '';
+  const overallResale = isConverted && rawResale != null ? convertUSD(rawResale, currCode) : rawResale;
+  const sizeResale = {};
+  for (const [size, price] of Object.entries(rawSizeResale || {})) {
+    sizeResale[size] = isConverted ? convertUSD(price, currCode) : price;
+  }
+
+  const fmtP = n => n != null ? `${sym}${Number(n).toFixed(0)}` : null;
+  const fmtR = n => n != null ? `${approx}${sym}${Number(n).toFixed(0)}` : null;
   const resaleLabel = source === 'StockX (KicksDB)' ? '💰 Avg (StockX)' : source === 'Grailed (ask)' ? '💰 Avg Ask (Grailed)' : '💰 Avg Resale (Grailed)';
-  const hasData = overallResale != null || Object.keys(sizeResale).length > 0;
+  const hasData = overallResale != null || Object.values(sizeResale).some(p => p != null);
 
   const buildLine = (v, isNew = false) => {
     const mapped    = SIZE_MAP[v.sizeName] || v.sizeName;
     const sp        = sizeResale[mapped] || overallResale || null;
     const profit    = sp && retailPrice ? sp - retailPrice : null;
     const indicator = !hasData ? '🆕' : sp == null ? '❓' : profit > 0 ? '🟢' : '🔴';
-    const priceStr  = sp ? ` · ${fmt(sp)}${profit != null ? (profit > 0 ? ` (+${fmt(profit)})` : ` (-${fmt(Math.abs(profit))})`) : ''}` : '';
+    const priceStr  = sp ? ` · ${fmtR(sp)}${profit != null ? (profit > 0 ? ` (+${fmtR(profit)})` : ` (-${fmtR(Math.abs(profit))})`) : ''}` : '';
     return `${indicator} **[${v.sizeName}](${v.atcUrl})**${priceStr}${isNew ? '  🔔' : ''}`;
   };
 
@@ -704,12 +754,12 @@ async function postRestockAlert({ region, productTitle, colorway, category, prod
 
   const fields = hasData
     ? [
-        { name: '🏷️ Retail',     value: fmt(retailPrice)   || 'N/A', inline: true },
-        { name: resaleLabel,      value: fmt(overallResale) || 'N/A', inline: true },
+        { name: '🏷️ Retail',     value: fmtP(retailPrice)   || 'N/A', inline: true },
+        { name: resaleLabel,      value: fmtR(overallResale) || 'N/A', inline: true },
         { name: '📈 Trend',       value: trend || '—',               inline: true },
       ]
     : [
-        { name: '🏷️ Retail',  value: fmt(retailPrice) || 'N/A', inline: true },
+        { name: '🏷️ Retail',  value: fmtP(retailPrice) || 'N/A', inline: true },
         { name: '💰 Resale',  value: '🆕 No data yet',              inline: true },
         { name: '📈 Trend',   value: '— New item',                 inline: true },
       ];
@@ -933,6 +983,7 @@ async function main() {
 
   loadSnapshot();
   loadResaleCache();
+  await refreshExchangeRates();
   checkWaveStatus();
 
   console.log(`Resale cache: ${resaleCache.size} items, refreshes every ${RESALE_REFRESH_MS / 1000 / 60 / 60}h`);

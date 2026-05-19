@@ -46,7 +46,38 @@ const EMBED_COLOR_NEW     = 0xE74C3C;             // red for new drops
 const EMBED_COLOR_RESTOCK = 0x2ECC71;             // green for restocks
 
 // Currency symbols
-const CURRENCY_SYMBOLS = { USD: '$', GBP: '£', EUR: '€', JPY: '¥' };
+const CURRENCY_SYMBOLS = { USD: '$', GBP: '£', EUR: '€', JPY: '¥', AUD: 'A$' };
+
+// ─── EXCHANGE RATES ─────────────────────────────────────────────────────────
+// Converts Grailed USD prices → local currency. Refreshed once per day.
+
+let exchangeRates = {};
+let exchangeRatesUpdatedAt = 0;
+const FX_REFRESH_MS = 24 * 60 * 60 * 1000;
+
+async function refreshExchangeRates() {
+  try {
+    const res = await fetch('https://open.er-api.com/v6/latest/USD', {
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    if (data.rates) {
+      exchangeRates = data.rates;
+      exchangeRatesUpdatedAt = Date.now();
+      console.log(`[FX] Rates updated — GBP:${data.rates.GBP} EUR:${data.rates.EUR} JPY:${data.rates.JPY} AUD:${data.rates.AUD}`);
+    }
+  } catch (err) {
+    console.error(`[FX] Failed to fetch rates: ${err.message}`);
+  }
+}
+
+function convertUSD(amount, toCurrency) {
+  if (!amount || toCurrency === 'USD') return amount;
+  const rate = exchangeRates[toCurrency];
+  if (!rate) return null;
+  return Math.round(amount * rate);
+}
 
 // ─── STATE ───────────────────────────────────────────────────────────────────
 
@@ -202,14 +233,19 @@ async function grailedLookupSingle(title) {
 }
 
 async function refreshResaleCache() {
-  // Collect all unique product titles from the US snapshot (Grailed = USD only)
-  const usSnapshot = snapshot['US'];
-  if (!usSnapshot || !Object.keys(usSnapshot).length) {
-    console.log(`[Resale] No US snapshot yet — skipping cache refresh`);
+  // Collect product titles from first active region's snapshot
+  const activeKey = Object.keys(REGIONS).find(key => {
+    if (ACTIVE_REGIONS && !ACTIVE_REGIONS.includes(key)) return false;
+    const w = WEBHOOKS[key];
+    return w && !w.startsWith('PASTE');
+  });
+  const regionSnapshot = activeKey ? snapshot[activeKey] : null;
+  if (!regionSnapshot || !Object.keys(regionSnapshot).length) {
+    console.log(`[Resale] No snapshot yet — skipping cache refresh`);
     return;
   }
 
-  const titles = [...new Set(Object.values(usSnapshot).map(p => p.title))];
+  const titles = [...new Set(Object.values(regionSnapshot).map(p => p.title))];
   console.log(`[Resale] Refreshing cache for ${titles.length} products...`);
 
   let updated = 0;
@@ -236,6 +272,9 @@ async function refreshResaleCache() {
 // Background resale cache refresh loop
 async function resaleCacheLoop() {
   while (true) {
+    if (Date.now() - exchangeRatesUpdatedAt > FX_REFRESH_MS) {
+      await refreshExchangeRates();
+    }
     await refreshResaleCache();
     console.log(`[Resale] Next refresh in ${RESALE_REFRESH_MS / 1000 / 60 / 60}h`);
     await new Promise(r => setTimeout(r, RESALE_REFRESH_MS));
@@ -336,8 +375,25 @@ async function sendAlert(region, product, variants, isNew) {
     return `🟢 **[${v.title}](${atcUrl})**`;
   }).join('\n');
 
-  // Resale data from cache (USD only — Grailed prices don't translate to other currencies)
-  const resale = region.webhookKey === 'US' ? getResaleFromCache(product.title) : null;
+  // Resale from cache — convert USD → local currency for non-US regions
+  const resaleRaw = getResaleFromCache(product.title);
+  let resale = null;
+  let isApprox = false;
+  if (resaleRaw && region.currency === 'USD') {
+    resale = resaleRaw;
+  } else if (resaleRaw) {
+    const avgLocal = convertUSD(resaleRaw.avg, region.currency);
+    if (avgLocal !== null) {
+      resale = {
+        avg: avgLocal,
+        low: convertUSD(resaleRaw.low, region.currency),
+        high: convertUSD(resaleRaw.high, region.currency),
+        count: resaleRaw.count,
+        url: resaleRaw.url,
+      };
+      isApprox = true;
+    }
+  }
 
   const tag = isNew ? '🆕 NEW DROP' : '🔄 RESTOCK';
   const color = isNew ? EMBED_COLOR_NEW : EMBED_COLOR_RESTOCK;
@@ -351,9 +407,10 @@ async function sendAlert(region, product, variants, isNew) {
   if (resale) {
     const profitAvg = Math.round(resale.avg - Number(price || 0));
     const profitEmoji = profitAvg > 0 ? '📈' : '📉';
+    const approx = isApprox ? '≈' : '';
     fields.push({
       name: '💰 Resale (Grailed)',
-      value: `Avg: **$${resale.avg}** | Low: $${resale.low} | High: $${resale.high}\n${profitEmoji} Profit: **$${profitAvg}** | [Search](${resale.url})`,
+      value: `Avg: **${approx}${symbol}${resale.avg}** | Low: ${approx}${symbol}${resale.low} | High: ${approx}${symbol}${resale.high}\n${profitEmoji} Est. Profit: **${approx}${symbol}${profitAvg}** | [Search](${resale.url})`,
       inline: false,
     });
   }
@@ -465,6 +522,7 @@ async function main() {
   console.log('👑 Palace Monitor starting...');
   loadSnapshot();
   loadResaleCache();
+  await refreshExchangeRates();
 
   const activeRegions = Object.entries(REGIONS)
     .filter(([key]) => {
