@@ -269,10 +269,15 @@ async function fetchAllProducts(region) {
 
     const data = parseProductsFromHtml(html);
     if (!data || !data.products || !data.products.length) {
+      // Any parse failure (page 1 OR later pages) means we have incomplete data
+      // for this collection — must NOT commit it to the snapshot, otherwise the
+      // missing variants get re-flagged as new/restock on the next full fetch.
       if (page === 1) {
-        console.error(`[${ts()}][${region.webhookKey}] Could not find products-json in HTML`);
-        complete = false;
+        console.error(`[${ts()}][${region.webhookKey}] Could not find products-json in HTML for ${collection}`);
+      } else {
+        console.warn(`[${ts()}][${region.webhookKey}] Page ${page} of ${collection} parsed empty — marking cycle incomplete`);
       }
+      complete = false;
       break;
     }
 
@@ -863,6 +868,7 @@ async function checkStock(region) {
   }
 
   let restocksThisCycle = 0;
+  const pendingAlerts   = [];
 
   for (const product of products) {
     const productTitle = product.title;
@@ -900,26 +906,39 @@ async function checkStock(region) {
 
     if (!restocked.length) continue;
 
+    // Collect — do not fire alerts inline. We apply a sanity check below to
+    // catch snapshot-reset false positives before they spam Discord.
     restocksThisCycle++;
-    onRestockDetected();
+    pendingAlerts.push({ product, productTitle, colorway, category, productUrl, imageUrl, restocked, allInStock });
+  }
 
-    console.log(`[${ts()}][${region.webhookKey}] 👀 ${productTitle} (${colorway}) — looking up resale...`);
-    const sku         = product.variants?.[0]?.sku || null;
-    const handle      = product.handle || null;
-    const resaleData  = await fetchResaleData(productTitle, colorway, sku, handle);
-    const retailPrice = restocked[0]?.price || null;
-    const isNewItem   = restocked.some(r => r.isNew);
+  // Sanity check: a single cycle "restocking" many products almost always means
+  // the snapshot got truncated by a silently-bad prior fetch (see Bug 1 above).
+  // Suppress alerts; snapshot still updates below so we re-baseline quietly.
+  const MAX_RESTOCKS_PER_CYCLE = Number(process.env.MAX_RESTOCKS_PER_CYCLE ?? 5);
+  if (pendingAlerts.length > MAX_RESTOCKS_PER_CYCLE) {
+    console.warn(`[${ts()}][${region.webhookKey}] ⚠️ Suppressed ${pendingAlerts.length} restock alerts (> ${MAX_RESTOCKS_PER_CYCLE}). Likely snapshot drift — re-baselining without spamming. Items: ${pendingAlerts.slice(0, 5).map(a => a.productTitle).join(', ')}${pendingAlerts.length > 5 ? ', ...' : ''}`);
+  } else {
+    for (const a of pendingAlerts) {
+      onRestockDetected();
+      console.log(`[${ts()}][${region.webhookKey}] 👀 ${a.productTitle} (${a.colorway}) — looking up resale...`);
+      const sku         = a.product.variants?.[0]?.sku || null;
+      const handle      = a.product.handle || null;
+      const resaleData  = await fetchResaleData(a.productTitle, a.colorway, sku, handle);
+      const retailPrice = a.restocked[0]?.price || null;
+      const isNewItem   = a.restocked.some(r => r.isNew);
 
-    await postRestockAlert({
-      region, productTitle, colorway, category,
-      productUrl, imageUrl,
-      restocked, allInStock,
-      isNewItem,
-      resaleData: resaleData || {
-        retailPrice, overallResale: null, sizeResale: {}, trend: null, stockxUrl: null, source: null,
-      },
-      retailPrice,
-    });
+      await postRestockAlert({
+        region, productTitle: a.productTitle, colorway: a.colorway, category: a.category,
+        productUrl: a.productUrl, imageUrl: a.imageUrl,
+        restocked: a.restocked, allInStock: a.allInStock,
+        isNewItem,
+        resaleData: resaleData || {
+          retailPrice, overallResale: null, sizeResale: {}, trend: null, stockxUrl: null, source: null,
+        },
+        retailPrice,
+      });
+    }
   }
 
   if (complete) {
