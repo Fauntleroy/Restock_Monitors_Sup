@@ -142,11 +142,42 @@ const UAS = [
 const LANGS = ['en-US,en;q=0.9', 'en-GB,en;q=0.9', 'en-US,en;q=0.8,es;q=0.6'];
 
 // ─── PROXY POOL ──────────────────────────────────────────────────────────────
-// Optional: add proxies to proxies.txt (one per line: http://user:pass@host:port)
+// Three input sources, all optional, merged into one pool:
+//   1. proxies.txt (or $PROXIES_PATH) — one per line, file-based (existing)
+//   2. $PROXIES env var — newline OR comma separated list (preferred for Railway)
+//   3. $PROXY env var — single entry shorthand
+// Each entry accepts EITHER URL form (http://user:pass@host:port) OR the
+// IPRoyal-native colon form (host:port:user:pass), auto-detected.
+
+function parseProxyEntry(raw) {
+  const s = String(raw || '').trim();
+  if (!s || s.startsWith('#')) return null;
+  if (/^https?:\/\//i.test(s)) return s; // already a URL
+  const parts = s.split(':');
+  if (parts.length === 4) {
+    const [host, port, user, pass] = parts;
+    return `http://${encodeURIComponent(user)}:${encodeURIComponent(pass)}@${host}:${port}`;
+  }
+  if (parts.length === 2) return `http://${s}`; // host:port, no auth
+  console.warn(`[Proxy] Skipping unrecognized entry: "${s.slice(0, 40)}"`);
+  return null;
+}
 
 const proxyLines = (() => {
-  try { return fs.readFileSync(process.env.PROXIES_PATH || 'proxies.txt','utf8').split('\n').map(l=>l.trim()).filter(Boolean); }
-  catch { return []; }
+  const inputs = [];
+  // 1. file
+  try {
+    const raw = fs.readFileSync(process.env.PROXIES_PATH || 'proxies.txt', 'utf8');
+    inputs.push(...raw.split('\n'));
+  } catch { /* no file is fine */ }
+  // 2. PROXIES env (list)
+  if (process.env.PROXIES) inputs.push(...process.env.PROXIES.split(/[\n,]/));
+  // 3. PROXY env (singular shorthand)
+  if (process.env.PROXY)   inputs.push(process.env.PROXY);
+  const parsed = inputs.map(parseProxyEntry).filter(Boolean);
+  if (parsed.length) console.log(`[Proxy] Loaded ${parsed.length} proxy URL(s) — IP rotation active`);
+  else               console.log(`[Proxy] No proxies configured — all traffic from single egress IP`);
+  return parsed;
 })();
 
 const proxyPool = (() => {
