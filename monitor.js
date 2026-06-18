@@ -912,12 +912,16 @@ async function checkStock(region) {
     pendingAlerts.push({ product, productTitle, colorway, category, productUrl, imageUrl, restocked, allInStock });
   }
 
-  // Sanity check: a single cycle "restocking" many products almost always means
-  // the snapshot got truncated by a silently-bad prior fetch (see Bug 1 above).
-  // Suppress alerts; snapshot still updates below so we re-baseline quietly.
-  const MAX_RESTOCKS_PER_CYCLE = Number(process.env.MAX_RESTOCKS_PER_CYCLE ?? 5);
-  if (pendingAlerts.length > MAX_RESTOCKS_PER_CYCLE) {
-    console.warn(`[${ts()}][${region.webhookKey}] ⚠️ Suppressed ${pendingAlerts.length} restock alerts (> ${MAX_RESTOCKS_PER_CYCLE}). Likely snapshot drift — re-baselining without spamming. Items: ${pendingAlerts.slice(0, 5).map(a => a.productTitle).join(', ')}${pendingAlerts.length > 5 ? ', ...' : ''}`);
+  // Sanity check: a single cycle "restocking" many products outside the drop
+  // window is almost always snapshot drift from a silently-bad prior fetch.
+  // During the wave window (Thursday drop or recent-restock cooldown), legit
+  // bursts of 30–70+ items are expected — use a much higher threshold then.
+  // Snapshot still updates either way so suppressed cycles re-baseline quietly.
+  const MAX_RESTOCKS_QUIET = Number(process.env.MAX_RESTOCKS_PER_CYCLE ?? 10);
+  const MAX_RESTOCKS_WAVE  = Number(process.env.MAX_RESTOCKS_PER_WAVE_CYCLE ?? 250);
+  const restockThreshold   = inWave ? MAX_RESTOCKS_WAVE : MAX_RESTOCKS_QUIET;
+  if (pendingAlerts.length > restockThreshold) {
+    console.warn(`[${ts()}][${region.webhookKey}] ⚠️ Suppressed ${pendingAlerts.length} restock alerts (> ${restockThreshold}, ${inWave ? 'wave' : 'quiet'} mode). Likely snapshot drift — re-baselining without spamming. Items: ${pendingAlerts.slice(0, 5).map(a => a.productTitle).join(', ')}${pendingAlerts.length > 5 ? ', ...' : ''}`);
   } else {
     for (const a of pendingAlerts) {
       onRestockDetected();
