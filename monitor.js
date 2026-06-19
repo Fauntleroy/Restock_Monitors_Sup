@@ -228,6 +228,16 @@ async function fetchPage(url) {
 
     if ([403, 429, 503].includes(res.status)) {
       proxyPool.ban(proxy);
+      // Diagnostic dump on blocks so we can see WHY (Cloudflare challenge vs
+      // raw rate limit vs proxy auth fail), WHERE (which proxy / direct), and
+      // any retry-after hint.
+      let body = '';
+      try { body = (await res.text()).slice(0, 200); } catch {}
+      const via   = proxy ? proxy.url.replace(/:[^@:/]+@/, ':***@') : 'DIRECT (no proxy in use)';
+      const cfRay = res.headers.get('cf-ray')      || '-';
+      const ra    = res.headers.get('retry-after') || '-';
+      const srv   = res.headers.get('server')      || '-';
+      console.warn(`[Blocked] ${res.status} ${url} | via=${via} | server=${srv} | cf-ray=${cfRay} | retry-after=${ra} | body="${body.replace(/\s+/g, ' ').trim()}"`);
       throw new Error(`Blocked: ${res.status}`);
     }
 

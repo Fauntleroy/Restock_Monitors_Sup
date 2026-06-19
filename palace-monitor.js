@@ -203,6 +203,13 @@ async function fetchProducts(region) {
 
     if (res.status === 429 || res.status === 403 || res.status === 503) {
       proxyPool.ban(proxy);
+      let body = '';
+      try { body = (await res.text()).slice(0, 200); } catch {}
+      const via   = proxy ? proxy.url.replace(/:[^@:/]+@/, ':***@') : 'DIRECT (no proxy in use)';
+      const cfRay = res.headers.get('cf-ray')      || '-';
+      const ra    = res.headers.get('retry-after') || '-';
+      const srv   = res.headers.get('server')      || '-';
+      console.warn(`[Blocked] ${res.status} ${graphqlUrl} | via=${via} | server=${srv} | cf-ray=${cfRay} | retry-after=${ra} | body="${body.replace(/\s+/g, ' ').trim()}"`);
       throw new Error(`Blocked: ${res.status}`);
     }
     if (!res.ok) {
