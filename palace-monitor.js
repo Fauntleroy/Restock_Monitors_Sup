@@ -5,6 +5,7 @@
 import fetch from 'node-fetch';
 import fs    from 'fs';
 import http  from 'http';
+import { HttpsProxyAgent } from 'https-proxy-agent';
 
 // ─── HEALTH CHECK SERVER ─────────────────────────────────────────────────────
 const PORT = process.env.PORT || 8080;
@@ -35,7 +36,7 @@ const ACTIVE_REGIONS = process.env.ACTIVE_REGIONS
   ? process.env.ACTIVE_REGIONS.split(',').map(r => r.trim().toUpperCase())
   : null;
 
-const POLL_MS           = 3 * 1000;        // 3 second polling
+const POLL_MS           = Number(process.env.POLL_INTERVAL_MS ?? 3 * 1000); // override via Railway env
 const REQUEST_TIMEOUT   = 15 * 1000;
 const SNAPSHOT_FILE     = process.env.SNAPSHOT_PATH || 'palace-snapshot.json';
 const RESALE_CACHE_FILE = process.env.RESALE_CACHE_PATH || 'palace-resale-cache.json';
@@ -47,6 +48,58 @@ const EMBED_COLOR_RESTOCK = 0x2ECC71;             // green for restocks
 
 // Currency symbols
 const CURRENCY_SYMBOLS = { USD: '$', GBP: '£', EUR: '€', JPY: '¥', AUD: 'A$' };
+
+// ─── PROXY POOL ──────────────────────────────────────────────────────────────
+// Three input sources, all optional, merged into one pool:
+//   1. proxies.txt (or $PROXIES_PATH) — one per line, file-based
+//   2. $PROXIES env var — newline OR comma separated list (preferred for Railway)
+//   3. $PROXY env var — single entry shorthand
+// Each entry accepts EITHER URL form (http://user:pass@host:port) OR the
+// IPRoyal-native colon form (host:port:user:pass), auto-detected.
+
+function parseProxyEntry(raw) {
+  const s = String(raw || '').trim();
+  if (!s || s.startsWith('#')) return null;
+  if (/^https?:\/\//i.test(s)) return s; // already a URL
+  const parts = s.split(':');
+  if (parts.length === 4) {
+    const [host, port, user, pass] = parts;
+    return `http://${encodeURIComponent(user)}:${encodeURIComponent(pass)}@${host}:${port}`;
+  }
+  if (parts.length === 2) return `http://${s}`; // host:port, no auth
+  console.warn(`[Proxy] Skipping unrecognized entry: "${s.slice(0, 40)}"`);
+  return null;
+}
+
+const proxyLines = (() => {
+  const inputs = [];
+  try {
+    const raw = fs.readFileSync(process.env.PROXIES_PATH || 'proxies.txt', 'utf8');
+    inputs.push(...raw.split('\n'));
+  } catch { /* no file is fine */ }
+  if (process.env.PROXIES) inputs.push(...process.env.PROXIES.split(/[\n,]/));
+  if (process.env.PROXY)   inputs.push(process.env.PROXY);
+  const parsed = inputs.map(parseProxyEntry).filter(Boolean);
+  if (parsed.length) console.log(`[Proxy] Loaded ${parsed.length} proxy URL(s) — IP rotation active`);
+  else               console.log(`[Proxy] No proxies configured — all traffic from single egress IP`);
+  return parsed;
+})();
+
+const proxyPool = (() => {
+  const banned  = new Set();
+  const proxies = proxyLines.map(url => ({ url }));
+  let i = 0;
+  return {
+    next() {
+      if (!proxies.length) return null;
+      const available = proxies.filter(p => !banned.has(p.url));
+      if (!available.length) { banned.clear(); return proxies[i++ % proxies.length]; }
+      return available[i++ % available.length];
+    },
+    ban(p) { if (p) banned.add(p.url); },
+    ok(p)  { if (p) banned.delete(p.url); },
+  };
+})();
 
 // ─── EXCHANGE RATES ─────────────────────────────────────────────────────────
 // Converts Grailed USD prices → local currency. Refreshed once per day.
@@ -132,6 +185,8 @@ async function fetchProducts(region) {
 
   while (true) {
     page++;
+    const proxy = proxyPool.next();
+    const agent = proxy ? new HttpsProxyAgent(proxy.url) : undefined;
     const res = await fetch(graphqlUrl, {
       method: 'POST',
       headers: {
@@ -142,10 +197,19 @@ async function fetchProducts(region) {
         query: PRODUCTS_QUERY,
         variables: { cursor },
       }),
+      agent,
       signal: AbortSignal.timeout(REQUEST_TIMEOUT),
     });
 
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (res.status === 429 || res.status === 403 || res.status === 503) {
+      proxyPool.ban(proxy);
+      throw new Error(`Blocked: ${res.status}`);
+    }
+    if (!res.ok) {
+      proxyPool.ban(proxy);
+      throw new Error(`HTTP ${res.status}`);
+    }
+    proxyPool.ok(proxy);
 
     const json = await res.json();
     const collection = json?.data?.collection;
