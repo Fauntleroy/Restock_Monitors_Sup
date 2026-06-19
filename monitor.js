@@ -29,11 +29,11 @@ const WEBHOOKS = {
 };
 
 const REGIONS = {
-  US: { label:'Supreme US', flag:'🇺🇸', baseUrl:'https://us.supreme.com', collections:['new','shoes','all'], currency:'USD', webhookKey:'US' },
-  UK: { label:'Supreme UK', flag:'🇬🇧', baseUrl:'https://uk.supreme.com', collections:['new','shoes','all'], currency:'GBP', webhookKey:'UK' },
-  EU: { label:'Supreme EU', flag:'🇪🇺', baseUrl:'https://eu.supreme.com', collections:['new','shoes','all'], currency:'EUR', webhookKey:'EU' },
-  JP: { label:'Supreme JP', flag:'🇯🇵', baseUrl:'https://jp.supreme.com', collections:['new','shoes','all'], currency:'JPY', webhookKey:'JP' },
-  ASIA: { label:'Supreme Asia', flag:'🌏', baseUrl:'https://shop.supreme.com', collections:['new','shoes','all'], currency:'SGD', webhookKey:'ASIA' },
+  US: { label:'Supreme US', flag:'🇺🇸', baseUrl:'https://us.supreme.com', collections:['all'], currency:'USD', webhookKey:'US' },
+  UK: { label:'Supreme UK', flag:'🇬🇧', baseUrl:'https://uk.supreme.com', collections:['all'], currency:'GBP', webhookKey:'UK' },
+  EU: { label:'Supreme EU', flag:'🇪🇺', baseUrl:'https://eu.supreme.com', collections:['all'], currency:'EUR', webhookKey:'EU' },
+  JP: { label:'Supreme JP', flag:'🇯🇵', baseUrl:'https://jp.supreme.com', collections:['all'], currency:'JPY', webhookKey:'JP' },
+  ASIA: { label:'Supreme Asia', flag:'🌏', baseUrl:'https://shop.supreme.com', collections:['all'], currency:'SGD', webhookKey:'ASIA' },
 };
 
 // ACTIVE_REGIONS env var controls which regions this instance monitors
