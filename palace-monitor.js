@@ -36,7 +36,11 @@ const ACTIVE_REGIONS = process.env.ACTIVE_REGIONS
   ? process.env.ACTIVE_REGIONS.split(',').map(r => r.trim().toUpperCase())
   : null;
 
-const POLL_MS           = Number(process.env.POLL_INTERVAL_MS ?? 3 * 1000); // override via Railway env
+// Quiet mode = slow polling. Wave mode (auto-engaged on any restock) = fast polling.
+// Stays in wave mode for WAVE_COOLDOWN_MS after the last restock, then drops back.
+const SLOW_POLL_MS      = Number(process.env.SLOW_POLL_MS ?? process.env.POLL_INTERVAL_MS ?? 20 * 1000);
+const FAST_POLL_MS      = Number(process.env.FAST_POLL_MS ?? 3 * 1000);
+const WAVE_COOLDOWN_MS  = Number(process.env.WAVE_COOLDOWN_MS ?? 5 * 60 * 1000);
 const REQUEST_TIMEOUT   = 15 * 1000;
 const SNAPSHOT_FILE     = process.env.SNAPSHOT_PATH || 'palace-snapshot.json';
 const RESALE_CACHE_FILE = process.env.RESALE_CACHE_PATH || 'palace-resale-cache.json';
@@ -137,6 +141,25 @@ function convertUSD(amount, toCurrency) {
 let snapshot    = {};  // { regionKey: { productId: { title, variants: { variantId: available } } } }
 let cooldowns   = {};  // { "region:title": timestamp }
 let resaleCache = {};  // { "product title": { avg, low, high, count, url, fetchedAt } }
+
+// Wave-mode polling state — engaged on any restock, falls back after WAVE_COOLDOWN_MS idle.
+let inWave        = false;
+let lastRestockAt = 0;
+
+function onRestockDetected() {
+  lastRestockAt = Date.now();
+  if (!inWave) {
+    inWave = true;
+    console.log(`[${ts()}] 🌊 Wave mode ON`);
+  }
+}
+
+function checkWaveStatus() {
+  if (inWave && Date.now() - lastRestockAt > WAVE_COOLDOWN_MS) {
+    inWave = false;
+    console.log(`[${ts()}] 💤 Wave mode OFF — returning to quiet`);
+  }
+}
 
 // ─── GRAPHQL ─────────────────────────────────────────────────────────────────
 
@@ -429,6 +452,7 @@ async function sendAlert(region, product, variants, isNew) {
   const cooldownKey = `${region.webhookKey}:${product.title}`;
   if (isCoolingDown(cooldownKey)) return;
   cooldowns[cooldownKey] = Date.now();
+  onRestockDetected();
 
   const price = product.priceRange?.minVariantPrice?.amount;
   const currencyCode = product.priceRange?.minVariantPrice?.currencyCode || region.currency;
@@ -571,7 +595,9 @@ async function checkRegion(regionKey, region) {
 // ─── MAIN LOOP ───────────────────────────────────────────────────────────────
 
 async function pollCycle() {
-  console.log(`[${ts()}] Polling... [${POLL_MS / 1000}s]`);
+  const intervalMs = inWave ? FAST_POLL_MS : SLOW_POLL_MS;
+  const mode = inWave ? `wave (${intervalMs/1000}s)` : `quiet (${intervalMs/1000}s)`;
+  console.log(`[${ts()}] Polling... [${mode}]`);
 
   const activeWebhooks = Object.entries(WEBHOOKS).filter(([, v]) => v && !v.startsWith('PASTE'));
   if (!activeWebhooks.length) {
@@ -603,7 +629,7 @@ async function main() {
     .map(([key, r]) => `${r.flag} ${key}`);
 
   console.log(`Active regions: ${activeRegions.join(', ') || 'NONE'}`);
-  console.log(`Poll interval: ${POLL_MS / 1000}s`);
+  console.log(`Poll intervals: quiet ${SLOW_POLL_MS/1000}s / wave ${FAST_POLL_MS/1000}s · wave cooldown ${WAVE_COOLDOWN_MS/1000}s`);
   console.log(`Resale cache: ${Object.keys(resaleCache).length} items, refreshes every ${RESALE_REFRESH_MS / 1000 / 60 / 60}h`);
 
   // Start resale cache refresh in background (waits 30s for first snapshot to build)
@@ -611,7 +637,9 @@ async function main() {
 
   while (true) {
     await pollCycle();
-    await new Promise(r => setTimeout(r, POLL_MS));
+    checkWaveStatus();
+    const delay = inWave ? FAST_POLL_MS : SLOW_POLL_MS;
+    await new Promise(r => setTimeout(r, delay));
   }
 }
 
