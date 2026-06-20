@@ -43,8 +43,10 @@ const ACTIVE_REGIONS = process.env.ACTIVE_REGIONS
   ? process.env.ACTIVE_REGIONS.split(',').map(r => r.trim().toUpperCase())
   : null;
 
-const SLOW_POLL_MS      = 3 * 1000;       // 3 sec quiet mode
-const FAST_POLL_MS      = 3 * 1000;       // 3 sec wave mode (same speed — always fast)
+// Quiet mode = slow polling to save proxy bandwidth.
+// Wave mode (auto-engaged on any restock OR Thursday drop window) = fast polling.
+const SLOW_POLL_MS      = Number(process.env.SLOW_POLL_MS ?? 10 * 1000);
+const FAST_POLL_MS      = Number(process.env.FAST_POLL_MS ?? 3 * 1000);
 const REQUEST_TIMEOUT   = 15 * 1000;
 const SNAPSHOT_FILE     = process.env.SNAPSHOT_PATH || 'snapshot.json';
 const RESALE_CACHE_FILE = process.env.RESALE_CACHE_PATH || 'supreme-resale-cache.json';
@@ -56,7 +58,7 @@ const WAVE_START_HOUR   = 10;
 const WAVE_START_MIN    = 50;
 const WAVE_END_HOUR     = 11;
 const WAVE_END_MIN      = 30;
-const WAVE_COOLDOWN_MS  = 30 * 60 * 1000; // extend wave 30 min after last restock
+const WAVE_COOLDOWN_MS  = Number(process.env.WAVE_COOLDOWN_MS ?? 5 * 60 * 1000); // extend wave Nm after last restock
 
 // ─── STATE ───────────────────────────────────────────────────────────────────
 
