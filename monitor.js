@@ -1073,46 +1073,18 @@ async function main() {
   // region key) to fire a synthetic recap to RECAP_WEBHOOK_<REGION> (falls
   // back to WEBHOOK_<REGION>) so you can preview the format. Remove the var
   // after you've seen it; otherwise it fires once on every restart.
+  // TEST_RECAP_ON_BOOT=US fires a real-data preview: fetches the live
+  // catalog, tries to match the curated items below (last week's drop from
+  // the user's reference screenshot), and renders the flyer with real
+  // product images + the real times. Verifies image pulling end-to-end.
+  // Boot log shows ✓ / ❌ per item + [img ok] / [no img].
   if (process.env.TEST_RECAP_ON_BOOT) {
     const r = process.env.TEST_RECAP_ON_BOOT.toUpperCase();
-    console.log(`[Recap] TEST_RECAP_ON_BOOT=${r} — posting synthetic recap once`);
-    try { await recap.sendTestRecap(r); }
-    catch (e) { console.error(`[Recap] Test recap failed:`, e.message); }
-  }
-
-  // Real-catalog test mode: fetches the current product list for the given
-  // region and feeds it into the recap with synthesized sellout times. Lets
-  // the visual format be verified with REAL product names, colors, and images
-  // before the next live Thursday drop. Remove the var after eyeballing.
-  if (process.env.TEST_RECAP_USE_SNAPSHOT) {
-    const r = process.env.TEST_RECAP_USE_SNAPSHOT.toUpperCase();
     const region = REGIONS[r];
     if (!region) {
-      console.error(`[Recap] TEST_RECAP_USE_SNAPSHOT=${r} — unknown region`);
+      console.error(`[Recap] TEST_RECAP_ON_BOOT=${r} — unknown region`);
     } else {
-      console.log(`[Recap] TEST_RECAP_USE_SNAPSHOT=${r} — fetching real catalog`);
-      try {
-        const { products } = await fetchAllProducts(region);
-        console.log(`[Recap] Fetched ${products.length} products for snapshot test`);
-        await recap.sendSnapshotTestRecap(r, products);
-      } catch (e) {
-        console.error(`[Recap] Snapshot test recap failed:`, e.message);
-      }
-    }
-  }
-
-  // Curated real-times test: feeds the recap with a hand-curated list of
-  // items + real sellout times from last week's drop. Fetches the live
-  // catalog and tries to match each item by title hint + color + size, so
-  // we can verify image pulling and visual layout against a known reference.
-  if (process.env.TEST_RECAP_REAL_TIMES) {
-    const r = process.env.TEST_RECAP_REAL_TIMES.toUpperCase();
-    const region = REGIONS[r];
-    if (!region) {
-      console.error(`[Recap] TEST_RECAP_REAL_TIMES=${r} — unknown region`);
-    } else {
-      console.log(`[Recap] TEST_RECAP_REAL_TIMES=${r} — fetching catalog + matching curated items`);
-      // Last week's US drop, from the user's reference screenshot.
+      console.log(`[Recap] TEST_RECAP_ON_BOOT=${r} — fetching live catalog + matching curated items`);
       const curatedItems = [
         { titleHint: 'Spitfire Zip Up Hooded Sweatshirt', color: 'Bright Fuchsia', sizeName: 'XXLarge', timeSec: 21 },
         { titleHint: 'Spitfire Polo',                     color: 'Yellow',         sizeName: 'Large',   timeSec: 26 },
@@ -1128,10 +1100,17 @@ async function main() {
       ];
       try {
         const { products } = await fetchAllProducts(region);
-        console.log(`[Recap] Fetched ${products.length} products for curated test`);
-        await recap.sendCuratedTestRecap(r, products, curatedItems);
+        console.log(`[Recap] Fetched ${products.length} products from live catalog`);
+        if (products.length === 0) {
+          console.warn(`[Recap] Catalog empty — falling back to synthetic test recap`);
+          await recap.sendTestRecap(r);
+        } else {
+          await recap.sendCuratedTestRecap(r, products, curatedItems);
+        }
       } catch (e) {
-        console.error(`[Recap] Curated test recap failed:`, e.message);
+        console.error(`[Recap] Real-data test recap failed — falling back to synthetic:`, e.message);
+        try { await recap.sendTestRecap(r); }
+        catch (e2) { console.error(`[Recap] Synthetic fallback also failed:`, e2.message); }
       }
     }
   }
