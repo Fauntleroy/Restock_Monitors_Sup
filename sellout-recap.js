@@ -335,7 +335,10 @@ async function postRecap(regionKey, slot /* 1 | 2 */) {
   const state  = dropStateByRegion.get(regionKey);
   const region = deps.regions[regionKey];
   if (!state || !region) return;
-  const webhook = deps.webhooks[regionKey];
+  // Prefer a region-specific recap webhook (RECAP_WEBHOOK_<REGION>) so the
+  // recap can land in a different Discord channel/thread than the restocks.
+  // Falls back to the restock webhook if no recap-specific one is set.
+  const webhook = process.env[`RECAP_WEBHOOK_${regionKey}`] || deps.webhooks[regionKey];
   if (!webhook || webhook.startsWith('PASTE')) {
     console.warn(`[Recap] No webhook configured for ${regionKey} — skipping recap #${slot}`);
     return;
