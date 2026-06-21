@@ -44,10 +44,18 @@ const ACTIVE_REGIONS = process.env.ACTIVE_REGIONS
   ? process.env.ACTIVE_REGIONS.split(',').map(r => r.trim().toUpperCase())
   : null;
 
-// Quiet mode = slow polling to save proxy bandwidth.
-// Wave mode (auto-engaged on any restock OR Thursday drop window) = fast polling.
-const SLOW_POLL_MS      = Number(process.env.SLOW_POLL_MS ?? 10 * 1000);
+// Polling modes (slowest to fastest):
+//   NIGHT_POLL_MS  — overnight hours (default 23:00–07:00 ET), least activity
+//   DAY_POLL_MS    — working hours, when more people are watching
+//   FAST_POLL_MS   — wave mode: any restock detected OR Thursday drop window
+// Wave mode auto-engages on restock and stays for WAVE_COOLDOWN_MS after the
+// last restock, then falls back to whichever quiet rate (day vs night) applies.
+// SLOW_POLL_MS is kept as a fallback for either if specifically unset.
+const NIGHT_POLL_MS     = Number(process.env.NIGHT_POLL_MS ?? process.env.SLOW_POLL_MS ?? 60 * 1000);
+const DAY_POLL_MS       = Number(process.env.DAY_POLL_MS   ?? process.env.SLOW_POLL_MS ?? 30 * 1000);
 const FAST_POLL_MS      = Number(process.env.FAST_POLL_MS ?? 3 * 1000);
+const NIGHT_START_HOUR  = Number(process.env.NIGHT_START_HOUR ?? 23); // ET — 11pm
+const NIGHT_END_HOUR    = Number(process.env.NIGHT_END_HOUR   ?? 7);  // ET — 7am
 const REQUEST_TIMEOUT   = 15 * 1000;
 const SNAPSHOT_FILE     = process.env.SNAPSHOT_PATH || 'snapshot.json';
 const RESALE_CACHE_FILE = process.env.RESALE_CACHE_PATH || 'supreme-resale-cache.json';
@@ -94,6 +102,16 @@ function checkWaveStatus() {
     inWave = false;
     console.log(`[${ts()}] 💤 💤 Wave mode OFF — returning to quiet mode`);
   }
+}
+
+// Returns true when the current time falls inside the overnight window
+// (NIGHT_START_HOUR..NIGHT_END_HOUR in ET). Handles the midnight wrap.
+function isOvernightHours() {
+  const et = new Date(Date.now() + (-4) * 60 * 60 * 1000);
+  const h = et.getUTCHours();
+  if (NIGHT_START_HOUR === NIGHT_END_HOUR) return false;
+  if (NIGHT_START_HOUR > NIGHT_END_HOUR)   return h >= NIGHT_START_HOUR || h < NIGHT_END_HOUR;
+  return h >= NIGHT_START_HOUR && h < NIGHT_END_HOUR;
 }
 
 // ─── CURRENCY & EXCHANGE RATES ──────────────────────────────────────────────
@@ -1075,7 +1093,10 @@ async function checkStock(region) {
 
 async function pollCycle() {
   const fmtInterval = (ms) => ms >= 60000 ? `${ms / 60000}m` : `${ms / 1000}s`;
-  const mode = inWave ? `wave (${fmtInterval(FAST_POLL_MS)})` : `quiet (${fmtInterval(SLOW_POLL_MS)})`;
+  let mode;
+  if (inWave)                  mode = `wave (${fmtInterval(FAST_POLL_MS)})`;
+  else if (isOvernightHours()) mode = `night (${fmtInterval(NIGHT_POLL_MS)})`;
+  else                         mode = `day (${fmtInterval(DAY_POLL_MS)})`;
   console.log(`[${ts()}] Polling... [${mode}]`);
 
   const activeRegions = Object.values(REGIONS).filter(r => {
@@ -1165,7 +1186,10 @@ async function main() {
       console.error(`[${ts()}] Poll error:`, err.message);
     }
 
-    const delay = inWave ? FAST_POLL_MS : SLOW_POLL_MS;
+    let delay;
+    if (inWave)                  delay = FAST_POLL_MS;
+    else if (isOvernightHours()) delay = NIGHT_POLL_MS;
+    else                         delay = DAY_POLL_MS;
     await new Promise(r => setTimeout(r, delay));
   }
 }
