@@ -315,10 +315,11 @@ export async function buildRecapFlyer({
 }) {
   const fonts = await loadFonts();
 
-  // Pre-fetch images for top 23 (3 podium + up to 20 list rows) to keep
+  // Pre-fetch images for top 15 (3 podium + up to 12 list rows) to keep
   // rendering reliable. Satori's runtime image fetch can hang/fail; data URLs
-  // are stable.
-  const MAX_LIST_ROWS = 20;
+  // are stable. The full sellout list is still preserved in dropState and
+  // sent as the attached .txt file — only the VISIBLE flyer is capped here.
+  const MAX_LIST_ROWS = 12;
   const TOP_N = 3 + MAX_LIST_ROWS;
   const topN = rows.slice(0, TOP_N);
   const dataUrls = await Promise.all(topN.map(r => imageToDataUrl(r.product.image)));
