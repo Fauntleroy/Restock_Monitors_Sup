@@ -583,5 +583,99 @@ export async function sendSnapshotTestRecap(regionKey, products) {
   }
 }
 
+// Curated test recap: takes a hand-curated list of items with their real
+// sellout times and tries to match each against the current catalog. Used
+// to verify image pulling and visual layout with known data.
+function matchColor(a, b) {
+  if (!b) return true;
+  const A = (a || '').toLowerCase().trim();
+  const B = b.toLowerCase().trim();
+  return A === B || A.includes(B) || B.includes(A);
+}
+
+function findCatalogMatch(products, titleHint, color, sizeName) {
+  const hint = titleHint.toLowerCase();
+  const candidates = products.filter(p =>
+    p.title.toLowerCase().includes(hint) && matchColor(p.color, color)
+  );
+  if (!candidates.length) return null;
+  for (const p of candidates) {
+    const v = (p.variants || []).find(v => (v.title || '').toLowerCase() === (sizeName || '').toLowerCase());
+    if (v) return { product: p, variant: v };
+  }
+  // Fallback: first candidate with its first available variant.
+  const p = candidates[0];
+  const v = (p.variants || [])[0];
+  return v ? { product: p, variant: v } : null;
+}
+
+export async function sendCuratedTestRecap(regionKey, products, items) {
+  const region = deps.regions[regionKey];
+  if (!region) { console.error(`[Recap] Unknown region: ${regionKey}`); return; }
+  const ctx = getDropContext(regionKey);
+  if (!ctx)   { console.error(`[Recap] No drop context for ${regionKey}`); return; }
+  const d = ctx.dropInstantMs;
+
+  const fakeProducts = {};
+  let matched = 0, missed = 0;
+  const matchLog = [];
+
+  for (const item of items) {
+    const match = findCatalogMatch(products, item.titleHint, item.color, item.sizeName);
+    if (!match) {
+      matchLog.push(`  ❌ ${item.titleHint} · ${item.color || '—'} · ${item.sizeName || '—'} · ${item.timeSec}s`);
+      missed++;
+      continue;
+    }
+    matched++;
+    const { product: p, variant: v } = match;
+    const pKey = (p.handle || p.url || p.title) + '|' + (p.color || '');
+    const soldOutMs = d + (item.timeSec * 1000);
+    matchLog.push(`  ✓  ${p.title} · ${p.color || '—'} · ${v.title} · ${item.timeSec}s  ${p.image ? '[img ok]' : '[no img]'}`);
+
+    if (!fakeProducts[pKey]) {
+      fakeProducts[pKey] = {
+        title:       p.title,
+        colorway:    p.color || null,
+        url:         region.baseUrl + (p.url || ''),
+        image:       p.image ? `https:${p.image}` : null,
+        category:    p.product_type || '—',
+        retail:      v.price ? v.price / 100 : null,
+        firstSeenMs: d,
+        sizes:       {},
+        soldOutMs:   0,
+      };
+    }
+    fakeProducts[pKey].sizes[String(v.id)] = {
+      name:         v.title,
+      atcUrl:       `${region.baseUrl}/cart/${v.id}:1?storefront=true`,
+      droppedMs:    d,
+      soldOutMs,
+      pendingFalse: SELLOUT_CONFIRM_READS,
+    };
+    fakeProducts[pKey].soldOutMs = Math.max(fakeProducts[pKey].soldOutMs, soldOutMs);
+  }
+
+  console.log(`[Recap] Curated test recap — matched ${matched}/${items.length} items (${missed} missed):`);
+  matchLog.forEach(l => console.log(l));
+
+  const fake = {
+    dropDate:      ctx.dropDate,
+    dropInstantMs: d,
+    products:      fakeProducts,
+    recap1Fired:   false,
+    recap2Fired:   false,
+  };
+
+  const prev = dropStateByRegion.get(regionKey);
+  dropStateByRegion.set(regionKey, fake);
+  try {
+    await postRecap(regionKey, 1);
+  } finally {
+    if (prev) dropStateByRegion.set(regionKey, prev);
+    else      dropStateByRegion.delete(regionKey);
+  }
+}
+
 // Diagnostic export (don't rely on this externally).
 export const _internal = { dropStateByRegion, getDropContext };

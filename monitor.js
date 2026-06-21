@@ -1101,6 +1101,41 @@ async function main() {
     }
   }
 
+  // Curated real-times test: feeds the recap with a hand-curated list of
+  // items + real sellout times from last week's drop. Fetches the live
+  // catalog and tries to match each item by title hint + color + size, so
+  // we can verify image pulling and visual layout against a known reference.
+  if (process.env.TEST_RECAP_REAL_TIMES) {
+    const r = process.env.TEST_RECAP_REAL_TIMES.toUpperCase();
+    const region = REGIONS[r];
+    if (!region) {
+      console.error(`[Recap] TEST_RECAP_REAL_TIMES=${r} — unknown region`);
+    } else {
+      console.log(`[Recap] TEST_RECAP_REAL_TIMES=${r} — fetching catalog + matching curated items`);
+      // Last week's US drop, from the user's reference screenshot.
+      const curatedItems = [
+        { titleHint: 'Spitfire Zip Up Hooded Sweatshirt', color: 'Bright Fuchsia', sizeName: 'XXLarge', timeSec: 21 },
+        { titleHint: 'Spitfire Polo',                     color: 'Yellow',         sizeName: 'Large',   timeSec: 26 },
+        { titleHint: 'Umbro Rhinestone Track Jacket',     color: 'Red',            sizeName: 'XXLarge', timeSec: 27 },
+        { titleHint: 'Spitfire Work Jacket',              color: 'White',          sizeName: 'Medium',  timeSec: 37 },
+        { titleHint: 'Spitfire Polo',                     color: 'Yellow',         sizeName: 'Small',   timeSec: 40 },
+        { titleHint: 'Spitfire L/S Tee',                  color: 'Light Pine',     sizeName: 'XXLarge', timeSec: 47 },
+        { titleHint: 'Shop S Logo Baseball Henley',       color: 'Desert Camo - Paris', sizeName: 'XXLarge', timeSec: 47 },
+        { titleHint: 'Spitfire Zip Up Hooded Sweatshirt', color: 'Ash Grey',       sizeName: 'XXLarge', timeSec: 53 },
+        { titleHint: 'Spitfire Mesh Short',               color: 'Light Blue',     sizeName: 'XLarge',  timeSec: 55 },
+        { titleHint: 'Spitfire Polo',                     color: 'Navy',           sizeName: 'XXLarge', timeSec: 57 },
+        { titleHint: 'Spitfire Polo',                     color: 'Yellow',         sizeName: 'XXLarge', timeSec: 62 },
+      ];
+      try {
+        const { products } = await fetchAllProducts(region);
+        console.log(`[Recap] Fetched ${products.length} products for curated test`);
+        await recap.sendCuratedTestRecap(r, products, curatedItems);
+      } catch (e) {
+        console.error(`[Recap] Curated test recap failed:`, e.message);
+      }
+    }
+  }
+
   console.log(`Resale cache: ${resaleCache.size} items, refreshes every ${RESALE_REFRESH_MS / 1000 / 60 / 60}h`);
 
   // Start resale cache refresh in background (waits 60s for first snapshot to build)
