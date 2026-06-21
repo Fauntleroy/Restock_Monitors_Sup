@@ -285,52 +285,6 @@ function speedEmoji(ms) {
 
 const CURRENCY_SYMBOLS = { USD: '$', GBP: '£', EUR: '€', JPY: '¥', SGD: 'S$' };
 
-function buildProductEmbed(region, p) {
-  // Earliest dropped time across sizes — "how long was this product available?"
-  const droppedSizes = Object.values(p.sizes).filter(s => s.droppedMs);
-  const firstDropped = droppedSizes.length
-    ? Math.min(...droppedSizes.map(s => s.droppedMs))
-    : p.firstSeenMs;
-  const productElapsed = p.soldOutMs - firstDropped;
-  const speed = speedEmoji(productElapsed);
-
-  const sizeLines = Object.values(p.sizes)
-    .filter(s => s.soldOutMs && s.droppedMs)
-    .sort((a, b) => (a.soldOutMs - a.droppedMs) - (b.soldOutMs - b.droppedMs))
-    .map(s => {
-      const elapsed = s.soldOutMs - s.droppedMs;
-      return `${speedEmoji(elapsed)} **[${s.name}](${s.atcUrl})** · lasted ${fmtDuration(elapsed)}`;
-    })
-    .join('\n');
-
-  const sym = CURRENCY_SYMBOLS[region.currency] || '$';
-  const retailStr = p.retail != null ? `${sym}${Math.round(p.retail)}` : 'N/A';
-  const soldCount = Object.values(p.sizes).filter(s => s.soldOutMs).length;
-  const totalSizes = Object.values(p.sizes).filter(s => s.droppedMs).length;
-
-  return {
-    title:     `⛔ SOLD OUT — ${p.title}${p.colorway ? ` — ${p.colorway}` : ''} · ${speed} ${fmtDuration(productElapsed)}`,
-    url:       p.url,
-    color:     productElapsed < 5  * 60_000 ? 0xC0392B
-             : productElapsed < 30 * 60_000 ? 0xE67E22
-             :                                 0x95A5A6,
-    thumbnail: p.image ? { url: p.image } : undefined,
-    fields: [
-      { name: '🏷️ Retail',          value: retailStr,                  inline: true },
-      { name: '⏱ Time to Sellout',  value: fmtDuration(productElapsed), inline: true },
-      { name: '🗂️ Category',        value: p.category || '—',          inline: true },
-      { name: `${region.flag} Region`, value: region.label,             inline: true },
-      {
-        name:  `⛔ Sizes Sold Out (${soldCount}/${totalSizes})`,
-        value: sizeLines || '—',
-        inline: false,
-      },
-    ],
-    footer:    { text: `Finest Monitors | ${region.label}` },
-    timestamp: new Date(p.soldOutMs).toISOString(),
-  };
-}
-
 async function postRecap(regionKey, slot /* 1 | 2 */) {
   const state  = dropStateByRegion.get(regionKey);
   const region = deps.regions[regionKey];
@@ -344,43 +298,56 @@ async function postRecap(regionKey, slot /* 1 | 2 */) {
     return;
   }
 
-  // Sort by product-level time-to-sellout (fastest first).
-  const soldOut = Object.values(state.products)
-    .filter(p => p.soldOutMs)
-    .map(p => {
-      const dropped = Object.values(p.sizes).filter(s => s.droppedMs);
-      const firstDropped = dropped.length ? Math.min(...dropped.map(s => s.droppedMs)) : p.firstSeenMs;
-      return { p, elapsed: p.soldOutMs - firstDropped };
-    })
-    .sort((a, b) => a.elapsed - b.elapsed)
-    .map(x => x.p);
+  // Flatten every sold-out variant into a single ranked list (fastest first).
+  // One row per variant — matches the "Times" page format the user referenced.
+  const rows = [];
+  let totalVariants = 0;
+  for (const p of Object.values(state.products)) {
+    for (const s of Object.values(p.sizes)) {
+      if (s.droppedMs) totalVariants++;
+      if (s.soldOutMs && s.droppedMs) {
+        rows.push({ product: p, size: s, elapsed: s.soldOutMs - s.droppedMs });
+      }
+    }
+  }
+  rows.sort((a, b) => a.elapsed - b.elapsed);
 
-  const totalDropped = Object.keys(state.products).length;
+  const totalProducts = Object.keys(state.products).length;
   const delayMin = slot === 1 ? RECAP1_DELAY_MIN : RECAP2_DELAY_MIN;
   const delayStr = delayMin >= 60 ? `${Math.round(delayMin / 60)}h` : `${delayMin}m`;
 
-  console.log(`[${deps.ts()}][${regionKey}] 🧾 Recap #${slot} (Drop +${delayStr}) — ${soldOut.length}/${totalDropped} sold out`);
+  console.log(`[${deps.ts()}][${regionKey}] 🧾 Recap #${slot} (Drop +${delayStr}) — ${rows.length} variants sold across ${totalProducts} products`);
 
-  const header = {
-    title:       `🧾 Sell-Out Recap — ${region.label} — Drop +${delayStr}`,
-    description: soldOut.length
-      ? `**${soldOut.length}** of ${totalDropped} dropped items have sold out so far. Ranked fastest first.`
-      : `Nothing has sold out yet (${totalDropped} items tracked).`,
-    color:       0x2C3E50,
-    footer:      { text: `Finest Monitors | ${region.label} | Drop ${state.dropDate}` },
+  // Discord embed description maxes at 4096 chars. Cap at 40 fastest rows.
+  const MAX_RECAP_ITEMS = 40;
+  const visibleRows = rows.slice(0, MAX_RECAP_ITEMS);
+  const truncated   = rows.length - visibleRows.length;
+
+  const lines = visibleRows.map((row, idx) => {
+    const { product: p, size: s, elapsed } = row;
+    const speed    = speedEmoji(elapsed);
+    const nameLink = `[${p.title}](${p.url})`;
+    const colorway = p.colorway ? `${p.colorway} · ` : '';
+    const time     = fmtDuration(elapsed);
+    return `**${idx + 1}.** ${nameLink} · ${colorway}${s.name} · \`${time}\` ${speed}`;
+  });
+
+  let description = rows.length === 0
+    ? `_No items have sold out yet — ${totalVariants} variants tracked across ${totalProducts} products._`
+    : lines.join('\n');
+  if (truncated > 0) {
+    description += `\n\n_… and ${truncated} more (showing top ${MAX_RECAP_ITEMS} fastest)_`;
+  }
+
+  const embed = {
+    title:       `🧾 ${region.label} Sell-Out Times — Drop +${delayStr}`,
+    description,
+    color:       0xE74C3C, // Finest red
+    footer:      { text: `Finest Monitors · ${region.label} · ${rows.length} / ${totalVariants} variants sold · Drop ${state.dropDate}` },
     timestamp:   new Date().toISOString(),
   };
 
-  // Discord caps embeds at 10/message — batch (header + 9, then 10s).
-  const productEmbeds = soldOut.map(p => buildProductEmbed(region, p));
-  const messages = [[header, ...productEmbeds.slice(0, 9)]];
-  for (let i = 9; i < productEmbeds.length; i += 10) {
-    messages.push(productEmbeds.slice(i, i + 10));
-  }
-
-  for (const embeds of messages) {
-    await deps.queueAlert({ webhookUrl: webhook, body: { embeds } });
-  }
+  await deps.queueAlert({ webhookUrl: webhook, body: { embeds: [embed] } });
 }
 
 // ─── SCHEDULER ───────────────────────────────────────────────────────────────
