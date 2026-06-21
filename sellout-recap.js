@@ -512,22 +512,22 @@ export async function sendSnapshotTestRecap(regionKey, products) {
   if (!ctx)   { console.error(`[Recap] No drop context for ${regionKey}`); return; }
   const d = ctx.dropInstantMs;
 
-  // Pick up to 30 products that have at least one available variant.
-  const pool = (products || []).filter(p => (p.variants || []).some(v => v.available));
-  // Stable-ish sampling: take from the start of the list (the first 30 products
-  // shown on the site). Simulates the "newest items" being the ones tracked.
-  const sampled = pool.slice(0, 30);
+  // Use up to 40 products from the catalog. Don't require availability —
+  // sold-out items are still in the catalog with images, and we want a
+  // realistic "drop recap" view which by definition includes sold-out items.
+  const pool = (products || []).filter(p => (p.variants || []).length > 0);
+  const sampled = pool.slice(0, 40);
 
   const fakeProducts = {};
   let i = 0;
   for (const p of sampled) {
-    const availVariants = (p.variants || []).filter(v => v.available);
-    if (!availVariants.length) continue;
+    const allVariants = (p.variants || []);
+    if (!allVariants.length) continue;
     const pKey = p.handle || p.url || (p.title + '|' + (p.color || ''));
 
-    // Pick 1-3 sizes per product.
-    const numSizes = Math.min(availVariants.length, 1 + Math.floor(Math.random() * 3));
-    const picked = availVariants.slice().sort(() => Math.random() - 0.5).slice(0, numSizes);
+    // Pick 1-3 sizes per product (from all variants regardless of availability).
+    const numSizes = Math.min(allVariants.length, 1 + Math.floor(Math.random() * 3));
+    const picked = allVariants.slice().sort(() => Math.random() - 0.5).slice(0, numSizes);
 
     const sizes = {};
     let productSoldOutMs = 0;
