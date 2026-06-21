@@ -89,19 +89,25 @@ function speedColor(ms) {
   return '#95A5A6';
 }
 
-const RED   = '#E74C3C';
-const DARK  = '#0F0F0F';
-const GREY  = '#6E6E6E';
-const LIGHT = '#F5F5F5';
-const WHITE = '#FFFFFF';
-const BLACK = '#000000';
+// Finest theme palette — gold + black + white. Reds kept only for the time
+// pills (visual urgency for "this sold out fast").
+const GOLD       = '#D4AF37';
+const GOLD_DEEP  = '#A87C1B';
+const BLACK      = '#0A0A0A';
+const DARK       = '#1A1A1A';
+const GREY       = '#6E6E6E';
+const LIGHT      = '#EEEEEE';
+const WHITE      = '#FFFFFF';
+const RED        = '#E74C3C';
+const LOGO_URL   = process.env.LOGO_URL || null; // hosted PNG URL of LF logo; falls back to gold text
 
 // ─── FLYER NODE TREE ─────────────────────────────────────────────────────────
 
 function podiumCard({ rank, imageUrl, title, colorway, size, elapsed, isFirst }) {
-  const imageSize = isFirst ? 280 : 200;
-  const nameSize  = isFirst ? 28  : 22;
-  const timeSize  = isFirst ? 56  : 40;
+  const imageSize = isFirst ? 260 : 180;
+  const nameSize  = isFirst ? 26  : 20;
+  const timeSize  = isFirst ? 52  : 36;
+  const borderClr = isFirst ? GOLD : BLACK;
 
   return {
     type: 'div',
@@ -111,18 +117,19 @@ function podiumCard({ rank, imageUrl, title, colorway, size, elapsed, isFirst })
         flexDirection: 'column',
         alignItems: 'center',
         flex: 1,
-        gap: 8,
+        gap: 6,
       },
       children: [
-        // Rank badge above image
+        // Rank badge
         {
           type: 'div',
           props: {
             style: {
-              fontSize: isFirst ? 36 : 28,
+              fontSize: isFirst ? 34 : 26,
               fontWeight: 700,
-              color: RED,
-              marginBottom: 4,
+              color: borderClr,
+              marginBottom: 2,
+              letterSpacing: 1,
             },
             children: `#${rank}`,
           },
@@ -135,15 +142,15 @@ function podiumCard({ rank, imageUrl, title, colorway, size, elapsed, isFirst })
               display: 'flex',
               width: imageSize,
               height: imageSize,
-              borderRadius: 16,
+              borderRadius: 12,
               backgroundColor: LIGHT,
               overflow: 'hidden',
-              border: `4px solid ${isFirst ? RED : DARK}`,
+              border: `${isFirst ? 5 : 3}px solid ${borderClr}`,
               alignItems: 'center',
               justifyContent: 'center',
             },
             children: imageUrl
-              ? [{ type: 'img', props: { src: imageUrl, width: imageSize - 8, height: imageSize - 8, style: { objectFit: 'contain' } } }]
+              ? [{ type: 'img', props: { src: imageUrl, width: imageSize - 10, height: imageSize - 10, style: { objectFit: 'contain' } } }]
               : [{ type: 'div', props: { style: { color: GREY, fontSize: 14 }, children: 'No image' } }],
           },
         },
@@ -156,7 +163,7 @@ function podiumCard({ rank, imageUrl, title, colorway, size, elapsed, isFirst })
               fontWeight: 700,
               color: speedColor(elapsed),
               lineHeight: 1,
-              marginTop: 8,
+              marginTop: 6,
             },
             children: fmtTime(elapsed),
           },
@@ -168,11 +175,11 @@ function podiumCard({ rank, imageUrl, title, colorway, size, elapsed, isFirst })
             style: {
               fontSize: nameSize,
               fontWeight: 700,
-              color: DARK,
+              color: BLACK,
               textAlign: 'center',
-              maxWidth: isFirst ? 360 : 240,
+              maxWidth: isFirst ? 340 : 220,
               lineHeight: 1.1,
-              marginTop: 4,
+              marginTop: 2,
             },
             children: title,
           },
@@ -182,11 +189,11 @@ function podiumCard({ rank, imageUrl, title, colorway, size, elapsed, isFirst })
           type: 'div',
           props: {
             style: {
-              fontSize: isFirst ? 20 : 16,
+              fontSize: isFirst ? 18 : 14,
               color: GREY,
               textAlign: 'center',
-              maxWidth: isFirst ? 360 : 240,
-              marginTop: 2,
+              maxWidth: isFirst ? 340 : 220,
+              marginTop: 1,
             },
             children: [colorway, size].filter(Boolean).join(' · '),
           },
@@ -203,16 +210,17 @@ function listRow({ rank, imageUrl, title, colorway, size, elapsed }) {
       style: {
         display: 'flex',
         alignItems: 'center',
-        padding: '12px 36px',
+        padding: '6px 36px',
         borderBottom: `1px solid ${LIGHT}`,
-        gap: 16,
+        gap: 14,
+        height: 50,
       },
       children: [
         // Rank
         {
           type: 'div',
           props: {
-            style: { fontSize: 22, fontWeight: 700, color: GREY, width: 40 },
+            style: { fontSize: 18, fontWeight: 700, color: GOLD_DEEP, width: 32 },
             children: `${rank}`,
           },
         },
@@ -222,16 +230,16 @@ function listRow({ rank, imageUrl, title, colorway, size, elapsed }) {
           props: {
             style: {
               display: 'flex',
-              width: 56,
-              height: 56,
-              borderRadius: 8,
+              width: 40,
+              height: 40,
+              borderRadius: 6,
               backgroundColor: LIGHT,
               overflow: 'hidden',
               alignItems: 'center',
               justifyContent: 'center',
             },
             children: imageUrl
-              ? [{ type: 'img', props: { src: imageUrl, width: 56, height: 56, style: { objectFit: 'contain' } } }]
+              ? [{ type: 'img', props: { src: imageUrl, width: 40, height: 40, style: { objectFit: 'contain' } } }]
               : [],
           },
         },
@@ -239,19 +247,19 @@ function listRow({ rank, imageUrl, title, colorway, size, elapsed }) {
         {
           type: 'div',
           props: {
-            style: { display: 'flex', flexDirection: 'column', flex: 1, gap: 2 },
+            style: { display: 'flex', flexDirection: 'column', flex: 1, gap: 1 },
             children: [
               {
                 type: 'div',
                 props: {
-                  style: { fontSize: 20, fontWeight: 700, color: DARK, maxWidth: 600, overflow: 'hidden' },
+                  style: { fontSize: 16, fontWeight: 700, color: BLACK, maxWidth: 620, overflow: 'hidden' },
                   children: title,
                 },
               },
               {
                 type: 'div',
                 props: {
-                  style: { fontSize: 15, color: GREY },
+                  style: { fontSize: 12, color: GREY },
                   children: [colorway, size].filter(Boolean).join(' · '),
                 },
               },
@@ -262,11 +270,35 @@ function listRow({ rank, imageUrl, title, colorway, size, elapsed }) {
         {
           type: 'div',
           props: {
-            style: { fontSize: 26, fontWeight: 700, color: speedColor(elapsed) },
+            style: { fontSize: 22, fontWeight: 700, color: speedColor(elapsed) },
             children: fmtTime(elapsed),
           },
         },
       ],
+    },
+  };
+}
+
+function logoBlock() {
+  if (LOGO_URL) {
+    return {
+      type: 'img',
+      props: { src: LOGO_URL, width: 72, height: 72, style: { objectFit: 'contain' } },
+    };
+  }
+  // Text-based LF mark as placeholder until LOGO_URL is set
+  return {
+    type: 'div',
+    props: {
+      style: {
+        display: 'flex',
+        fontSize: 60,
+        fontWeight: 700,
+        color: GOLD,
+        letterSpacing: -2,
+        lineHeight: 1,
+      },
+      children: 'LF',
     },
   };
 }
@@ -283,14 +315,17 @@ export async function buildRecapFlyer({
 }) {
   const fonts = await loadFonts();
 
-  // Pre-fetch images for top 8 to keep rendering reliable (Satori's runtime
-  // image fetch can hang/fail; data URLs are stable).
-  const top8 = rows.slice(0, 8);
-  const dataUrls = await Promise.all(top8.map(r => imageToDataUrl(r.product.image)));
+  // Pre-fetch images for top 23 (3 podium + up to 20 list rows) to keep
+  // rendering reliable. Satori's runtime image fetch can hang/fail; data URLs
+  // are stable.
+  const MAX_LIST_ROWS = 20;
+  const TOP_N = 3 + MAX_LIST_ROWS;
+  const topN = rows.slice(0, TOP_N);
+  const dataUrls = await Promise.all(topN.map(r => imageToDataUrl(r.product.image)));
 
-  const top3 = top8.slice(0, 3).map((r, i) => ({ ...r, imageUrl: dataUrls[i] }));
-  const listed = top8.slice(3).map((r, i) => ({ ...r, imageUrl: dataUrls[i + 3] }));
-  const remainderCount = Math.max(0, rows.length - 8);
+  const top3 = topN.slice(0, 3).map((r, i) => ({ ...r, imageUrl: dataUrls[i] }));
+  const listed = topN.slice(3).map((r, i) => ({ ...r, imageUrl: dataUrls[i + 3] }));
+  const remainderCount = Math.max(0, rows.length - TOP_N);
 
   const delayStr = delayMin >= 60 ? `${Math.round(delayMin/60)}h` : `${delayMin}m`;
 
@@ -321,38 +356,50 @@ export async function buildRecapFlyer({
         fontFamily: 'Inter',
       },
       children: [
-        // Header bar (red)
+        // Header bar (BLACK with gold accents)
         {
           type: 'div',
           props: {
             style: {
               display: 'flex',
-              backgroundColor: RED,
+              backgroundColor: BLACK,
               color: WHITE,
-              padding: '24px 40px',
+              padding: '20px 40px',
               alignItems: 'center',
               justifyContent: 'space-between',
               height: 110,
               boxSizing: 'border-box',
+              borderBottom: `4px solid ${GOLD}`,
             },
             children: [
+              // Left: LF logo + title
               {
                 type: 'div',
                 props: {
-                  style: { display: 'flex', flexDirection: 'column' },
+                  style: { display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 18 },
                   children: [
-                    { type: 'div', props: { style: { fontSize: 22, fontWeight: 400, letterSpacing: 2, opacity: 0.9 }, children: 'FINEST MONITORS' } },
-                    { type: 'div', props: { style: { fontSize: 44, fontWeight: 700, letterSpacing: -1, lineHeight: 1 }, children: `${region.label} Sell-Out Times` } },
+                    logoBlock(),
+                    {
+                      type: 'div',
+                      props: {
+                        style: { display: 'flex', flexDirection: 'column' },
+                        children: [
+                          { type: 'div', props: { style: { fontSize: 16, fontWeight: 400, letterSpacing: 3, color: GOLD }, children: 'FINEST MONITORS' } },
+                          { type: 'div', props: { style: { fontSize: 36, fontWeight: 700, letterSpacing: -1, lineHeight: 1.05 }, children: `${region.label} Sell-Out Times` } },
+                        ],
+                      },
+                    },
                   ],
                 },
               },
+              // Right: DROP +Nm
               {
                 type: 'div',
                 props: {
                   style: { display: 'flex', flexDirection: 'column', alignItems: 'flex-end' },
                   children: [
-                    { type: 'div', props: { style: { fontSize: 18, opacity: 0.9 }, children: 'DROP' } },
-                    { type: 'div', props: { style: { fontSize: 36, fontWeight: 700 }, children: `+${delayStr}` } },
+                    { type: 'div', props: { style: { fontSize: 14, letterSpacing: 3, color: GOLD }, children: 'DROP' } },
+                    { type: 'div', props: { style: { fontSize: 38, fontWeight: 700, color: WHITE }, children: `+${delayStr}` } },
                   ],
                 },
               },
@@ -369,8 +416,8 @@ export async function buildRecapFlyer({
               flexDirection: 'row',
               alignItems: 'flex-end',
               justifyContent: 'space-around',
-              padding: '40px 30px 30px',
-              height: 540,
+              padding: '30px 30px 20px',
+              height: 500,
               boxSizing: 'border-box',
             },
             children: podiumChildren.length ? podiumChildren : [{
@@ -392,12 +439,13 @@ export async function buildRecapFlyer({
               alignItems: 'center',
               padding: '0 40px',
               gap: 20,
-              marginTop: 4,
+              marginTop: 2,
+              marginBottom: 4,
             },
             children: [
-              { type: 'div', props: { style: { flex: 1, height: 2, backgroundColor: LIGHT } } },
-              { type: 'div', props: { style: { fontSize: 18, fontWeight: 700, color: GREY, letterSpacing: 2 }, children: 'ALSO MOVED FAST' } },
-              { type: 'div', props: { style: { flex: 1, height: 2, backgroundColor: LIGHT } } },
+              { type: 'div', props: { style: { flex: 1, height: 2, backgroundColor: GOLD, opacity: 0.6 } } },
+              { type: 'div', props: { style: { fontSize: 16, fontWeight: 700, color: GOLD_DEEP, letterSpacing: 3 }, children: 'ALSO MOVED FAST' } },
+              { type: 'div', props: { style: { flex: 1, height: 2, backgroundColor: GOLD, opacity: 0.6 } } },
             ],
           },
         },
@@ -406,24 +454,25 @@ export async function buildRecapFlyer({
         {
           type: 'div',
           props: {
-            style: { display: 'flex', flexDirection: 'column', flex: 1, padding: '8px 0' },
+            style: { display: 'flex', flexDirection: 'column', flex: 1, padding: '2px 0' },
             children: listChildren,
           },
         },
 
-        // Footer
+        // Footer (BLACK with gold accents)
         {
           type: 'div',
           props: {
             style: {
               display: 'flex',
-              backgroundColor: DARK,
+              backgroundColor: BLACK,
               color: WHITE,
-              padding: '20px 40px',
+              padding: '16px 40px',
               alignItems: 'center',
               justifyContent: 'space-between',
               height: 90,
               boxSizing: 'border-box',
+              borderTop: `4px solid ${GOLD}`,
             },
             children: [
               {
@@ -431,7 +480,7 @@ export async function buildRecapFlyer({
                 props: {
                   style: { display: 'flex', flexDirection: 'column' },
                   children: [
-                    { type: 'div', props: { style: { fontSize: 16, opacity: 0.7 }, children: 'WEEKLY SELL-OUT TRACKER' } },
+                    { type: 'div', props: { style: { fontSize: 13, letterSpacing: 3, color: GOLD }, children: 'WEEKLY SELL-OUT TRACKER' } },
                     { type: 'div', props: { style: { fontSize: 22, fontWeight: 700 }, children: dropDate } },
                   ],
                 },
@@ -441,8 +490,8 @@ export async function buildRecapFlyer({
                 props: {
                   style: { display: 'flex', flexDirection: 'column', alignItems: 'flex-end' },
                   children: [
-                    { type: 'div', props: { style: { fontSize: 16, opacity: 0.7 }, children: 'SOLD OUT' } },
-                    { type: 'div', props: { style: { fontSize: 22, fontWeight: 700 }, children: `${rows.length} / ${totalVariants} variants${remainderCount > 0 ? ` (+${remainderCount} more)` : ''}` } },
+                    { type: 'div', props: { style: { fontSize: 13, letterSpacing: 3, color: GOLD }, children: 'SOLD OUT' } },
+                    { type: 'div', props: { style: { fontSize: 22, fontWeight: 700, color: GOLD }, children: `${rows.length} / ${totalVariants} variants${remainderCount > 0 ? ` (+${remainderCount} more)` : ''}` } },
                   ],
                 },
               },

@@ -1080,6 +1080,27 @@ async function main() {
     catch (e) { console.error(`[Recap] Test recap failed:`, e.message); }
   }
 
+  // Real-catalog test mode: fetches the current product list for the given
+  // region and feeds it into the recap with synthesized sellout times. Lets
+  // the visual format be verified with REAL product names, colors, and images
+  // before the next live Thursday drop. Remove the var after eyeballing.
+  if (process.env.TEST_RECAP_USE_SNAPSHOT) {
+    const r = process.env.TEST_RECAP_USE_SNAPSHOT.toUpperCase();
+    const region = REGIONS[r];
+    if (!region) {
+      console.error(`[Recap] TEST_RECAP_USE_SNAPSHOT=${r} — unknown region`);
+    } else {
+      console.log(`[Recap] TEST_RECAP_USE_SNAPSHOT=${r} — fetching real catalog`);
+      try {
+        const { products } = await fetchAllProducts(region);
+        console.log(`[Recap] Fetched ${products.length} products for snapshot test`);
+        await recap.sendSnapshotTestRecap(r, products);
+      } catch (e) {
+        console.error(`[Recap] Snapshot test recap failed:`, e.message);
+      }
+    }
+  }
+
   console.log(`Resale cache: ${resaleCache.size} items, refreshes every ${RESALE_REFRESH_MS / 1000 / 60 / 60}h`);
 
   // Start resale cache refresh in background (waits 60s for first snapshot to build)
