@@ -1073,18 +1073,30 @@ async function main() {
   // region key) to fire a synthetic recap to RECAP_WEBHOOK_<REGION> (falls
   // back to WEBHOOK_<REGION>) so you can preview the format. Remove the var
   // after you've seen it; otherwise it fires once on every restart.
-  // TEST_RECAP_ON_BOOT=US fires a real-data preview: fetches the live
-  // catalog, picks ~40 products (including sold-out ones — they still have
-  // images), synthesizes realistic sellout times across them, and renders
-  // the flyer. Shows what a fully-populated weekly recap will look like
-  // end-to-end with real images.
+  // TEST_RECAP_ON_BOOT=US uses the 11 real items + real times the user
+  // sent from last week's drop, matches them against the live catalog (so
+  // we get real product images), then supplements with additional current-
+  // catalog items at slower synthesized times to fill out the flyer.
   if (process.env.TEST_RECAP_ON_BOOT) {
     const r = process.env.TEST_RECAP_ON_BOOT.toUpperCase();
     const region = REGIONS[r];
     if (!region) {
       console.error(`[Recap] TEST_RECAP_ON_BOOT=${r} — unknown region`);
     } else {
-      console.log(`[Recap] TEST_RECAP_ON_BOOT=${r} — fetching live catalog`);
+      console.log(`[Recap] TEST_RECAP_ON_BOOT=${r} — matching curated items against live catalog`);
+      const curatedItems = [
+        { titleHint: 'Spitfire Zip Up Hooded Sweatshirt', color: 'Bright Fuchsia', sizeName: 'XXLarge', timeSec: 21 },
+        { titleHint: 'Spitfire Polo',                     color: 'Yellow',         sizeName: 'Large',   timeSec: 26 },
+        { titleHint: 'Umbro Rhinestone Track Jacket',     color: 'Red',            sizeName: 'XXLarge', timeSec: 27 },
+        { titleHint: 'Spitfire Work Jacket',              color: 'White',          sizeName: 'Medium',  timeSec: 37 },
+        { titleHint: 'Spitfire Polo',                     color: 'Yellow',         sizeName: 'Small',   timeSec: 40 },
+        { titleHint: 'Spitfire L/S Tee',                  color: 'Light Pine',     sizeName: 'XXLarge', timeSec: 47 },
+        { titleHint: 'Shop S Logo Baseball Henley',       color: 'Desert Camo - Paris', sizeName: 'XXLarge', timeSec: 47 },
+        { titleHint: 'Spitfire Zip Up Hooded Sweatshirt', color: 'Ash Grey',       sizeName: 'XXLarge', timeSec: 53 },
+        { titleHint: 'Spitfire Mesh Short',               color: 'Light Blue',     sizeName: 'XLarge',  timeSec: 55 },
+        { titleHint: 'Spitfire Polo',                     color: 'Navy',           sizeName: 'XXLarge', timeSec: 57 },
+        { titleHint: 'Spitfire Polo',                     color: 'Yellow',         sizeName: 'XXLarge', timeSec: 62 },
+      ];
       try {
         const { products } = await fetchAllProducts(region);
         console.log(`[Recap] Fetched ${products.length} products from live catalog`);
@@ -1092,7 +1104,7 @@ async function main() {
           console.warn(`[Recap] Catalog empty — falling back to synthetic test recap`);
           await recap.sendTestRecap(r);
         } else {
-          await recap.sendSnapshotTestRecap(r, products);
+          await recap.sendCuratedTestRecap(r, products, curatedItems);
         }
       } catch (e) {
         console.error(`[Recap] Real-data test recap failed — falling back to synthetic:`, e.message);
