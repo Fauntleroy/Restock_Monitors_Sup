@@ -586,24 +586,33 @@ export async function sendSnapshotTestRecap(regionKey, products) {
 // Curated test recap: takes a hand-curated list of items with their real
 // sellout times and tries to match each against the current catalog. Used
 // to verify image pulling and visual layout with known data.
+
+// Normalize for matching — strip ® ™ © and other punctuation, collapse
+// whitespace. Supreme titles like "Supreme®/Spitfire® Zip Up Hooded
+// Sweatshirt" don't contain "Spitfire Zip Up" as a substring without this.
+function normalize(s) {
+  return (s || '').toLowerCase().replace(/[®™©/®]/g, ' ').replace(/[^a-z0-9 -]/g, '').replace(/\s+/g, ' ').trim();
+}
+
 function matchColor(a, b) {
   if (!b) return true;
-  const A = (a || '').toLowerCase().trim();
-  const B = b.toLowerCase().trim();
+  const A = normalize(a);
+  const B = normalize(b);
   return A === B || A.includes(B) || B.includes(A);
 }
 
 function findCatalogMatch(products, titleHint, color, sizeName) {
-  const hint = titleHint.toLowerCase();
+  const hint = normalize(titleHint);
   const candidates = products.filter(p =>
-    p.title.toLowerCase().includes(hint) && matchColor(p.color, color)
+    normalize(p.title).includes(hint) && matchColor(p.color, color)
   );
   if (!candidates.length) return null;
   for (const p of candidates) {
     const v = (p.variants || []).find(v => (v.title || '').toLowerCase() === (sizeName || '').toLowerCase());
     if (v) return { product: p, variant: v };
   }
-  // Fallback: first candidate with its first available variant.
+  // Fallback: first candidate with its first variant (available or not —
+  // sold-out items are still in the catalog and have images).
   const p = candidates[0];
   const v = (p.variants || [])[0];
   return v ? { product: p, variant: v } : null;
