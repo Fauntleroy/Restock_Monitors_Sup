@@ -10,6 +10,7 @@ import fetch  from 'node-fetch';
 import fs     from 'fs';
 import http   from 'http';
 import { HttpsProxyAgent } from 'https-proxy-agent';
+import * as recap          from './sellout-recap.js';
 
 // ─── HEALTH CHECK SERVER (Railway requires an HTTP listener) ──────────────────
 const PORT = process.env.PORT || 8080;
@@ -29,7 +30,7 @@ const WEBHOOKS = {
 };
 
 const REGIONS = {
-  US: { label:'Supreme US', flag:'🇺🇸', baseUrl:'https://us.supreme.com', collections:['all'], currency:'USD', webhookKey:'US' },
+  US: { label:'Supreme US', flag:'🇺🇸', baseUrl:'https://us.supreme.com', collections:['all'], currency:'USD', webhookKey:'US', tz:'America/New_York' },
   UK: { label:'Supreme UK', flag:'🇬🇧', baseUrl:'https://uk.supreme.com', collections:['all'], currency:'GBP', webhookKey:'UK' },
   EU: { label:'Supreme EU', flag:'🇪🇺', baseUrl:'https://eu.supreme.com', collections:['all'], currency:'EUR', webhookKey:'EU' },
   JP: { label:'Supreme JP', flag:'🇯🇵', baseUrl:'https://jp.supreme.com', collections:['all'], currency:'JPY', webhookKey:'JP' },
@@ -912,6 +913,7 @@ async function checkStock(region) {
 
   let restocksThisCycle = 0;
   const pendingAlerts   = [];
+  const seenKeys        = new Set();
 
   for (const product of products) {
     const productTitle = product.title;
@@ -926,12 +928,13 @@ async function checkStock(region) {
 
     for (const variant of variants) {
       const key      = `${region.webhookKey}:${variant.id}`;
+      const prev     = previousStock.get(key);
       const sizeName = variant.title;
       const atcUrl   = `${region.baseUrl}/cart/${variant.id}:1?storefront=true`;
       const price    = variant.price ? variant.price / 100 : null;
+      seenKeys.add(key);
 
       if (!isFirstRun && firstRunDone[region.webhookKey] && variant.available) {
-        const prev = previousStock.get(key);
         if (prev === false) {
           restocked.push({ sizeName, atcUrl, price, isNew: false });
         } else if (prev === undefined) {
@@ -944,6 +947,11 @@ async function checkStock(region) {
         pendingStock.set(key, true);
       } else {
         pendingStock.set(key, false);
+      }
+
+      // Sellout-recap observation (only acts during the drop window).
+      if (!isFirstRun && firstRunDone[region.webhookKey]) {
+        recap.observeVariant(region, product, variant, prev);
       }
     }
 
@@ -1007,6 +1015,12 @@ async function checkStock(region) {
       isFirstRun = false;
     }
     saveSnapshot();
+
+    // Sellout-recap end-of-cycle: detects variants that disappeared from the
+    // feed (treated as confirmed sellouts) and persists drop-state to disk.
+    if (firstRunDone[region.webhookKey]) {
+      recap.observeCycleEnd(region, seenKeys);
+    }
   } else {
     console.warn(`[${ts()}][${region.webhookKey}] Snapshot NOT updated (incomplete fetch)`);
   }
@@ -1033,6 +1047,7 @@ async function pollCycle() {
   });
 
   await Promise.allSettled(activeRegions.map(r => checkStock(r)));
+  await recap.tickSchedule(activeRegions.map(r => r.webhookKey));
 }
 
 // ─── MAIN ─────────────────────────────────────────────────────────────────────
@@ -1051,6 +1066,8 @@ async function main() {
   loadResaleCache();
   await refreshExchangeRates();
   checkWaveStatus();
+
+  recap.init({ webhooks: WEBHOOKS, regions: REGIONS, queueAlert, ts });
 
   console.log(`Resale cache: ${resaleCache.size} items, refreshes every ${RESALE_REFRESH_MS / 1000 / 60 / 60}h`);
 
