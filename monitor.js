@@ -1054,7 +1054,6 @@ async function pollCycle() {
 
 async function main() {
   console.log('🔴 Supreme Monitor starting...');
-  console.log('▶▶▶  BUILD MARKER: sellout-flyer-v1  ◀◀◀'); // proves which code is running
 
   const activeWebhooks = Object.entries(WEBHOOKS).filter(([, v]) => v && !v.startsWith('PASTE'));
   if (!activeWebhooks.length) {

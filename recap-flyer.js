@@ -17,9 +17,11 @@ import fetch from 'node-fetch';
 
 // ─── FONT LOADING ────────────────────────────────────────────────────────────
 
+// Inter via jsdelivr-hosted @fontsource (.woff — Satori supports TTF, OTF, WOFF;
+// NOT WOFF2). These URLs are version-pinned and stable.
 const FONT_URLS = {
-  regular: 'https://github.com/rsms/inter/raw/master/docs/font-files/Inter-Regular.otf',
-  bold:    'https://github.com/rsms/inter/raw/master/docs/font-files/Inter-Bold.otf',
+  regular: 'https://cdn.jsdelivr.net/npm/@fontsource/inter@5/files/inter-latin-400-normal.woff',
+  bold:    'https://cdn.jsdelivr.net/npm/@fontsource/inter@5/files/inter-latin-700-normal.woff',
 };
 
 let cachedFonts = null;
