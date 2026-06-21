@@ -659,6 +659,55 @@ export async function sendCuratedTestRecap(regionKey, products, items) {
   console.log(`[Recap] Curated test recap — matched ${matched}/${items.length} items (${missed} missed):`);
   matchLog.forEach(l => console.log(l));
 
+  // Supplement with random current-catalog items if the match was sparse —
+  // otherwise the flyer looks empty when Supreme has rotated past the
+  // curated week's items. Supplementary items get synthesized sellout times
+  // SLOWER than the slowest matched item so the ranking still makes sense.
+  const TARGET_TOTAL = 15;
+  if (Object.keys(fakeProducts).length < TARGET_TOTAL) {
+    let slowestMs = d;
+    for (const p of Object.values(fakeProducts)) {
+      if (p.soldOutMs > slowestMs) slowestMs = p.soldOutMs;
+    }
+    const matchedTitles = new Set(Object.values(fakeProducts).map(p => p.title.toLowerCase()));
+    const supplementPool = (products || []).filter(p =>
+      (p.variants || []).some(v => v.available) &&
+      !matchedTitles.has(p.title.toLowerCase())
+    );
+    const shuffled = supplementPool.slice().sort(() => Math.random() - 0.5);
+    const need = TARGET_TOTAL - Object.keys(fakeProducts).length;
+    let added = 0;
+    for (const p of shuffled) {
+      if (added >= need) break;
+      const v = (p.variants || []).find(v => v.available);
+      if (!v) continue;
+      const pKey = (p.handle || p.url || p.title) + '|' + (p.color || '') + '|supplement';
+      const offsetMs = (60 + Math.random() * 240) * 1000;
+      const soldOutMs = slowestMs + offsetMs;
+      fakeProducts[pKey] = {
+        title:       p.title,
+        colorway:    p.color || null,
+        url:         region.baseUrl + (p.url || ''),
+        image:       p.image ? `https:${p.image}` : null,
+        category:    p.product_type || '—',
+        retail:      v.price ? v.price / 100 : null,
+        firstSeenMs: d,
+        sizes: {
+          [String(v.id)]: {
+            name:         v.title,
+            atcUrl:       `${region.baseUrl}/cart/${v.id}:1?storefront=true`,
+            droppedMs:    d,
+            soldOutMs,
+            pendingFalse: SELLOUT_CONFIRM_READS,
+          }
+        },
+        soldOutMs,
+      };
+      added++;
+    }
+    if (added > 0) console.log(`[Recap] Supplemented with ${added} random current-catalog items to fill the flyer`);
+  }
+
   const fake = {
     dropDate:      ctx.dropDate,
     dropInstantMs: d,
