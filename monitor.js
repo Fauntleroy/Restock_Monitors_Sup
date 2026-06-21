@@ -1069,6 +1069,17 @@ async function main() {
 
   recap.init({ webhooks: WEBHOOKS, regions: REGIONS, queueAlert, ts });
 
+  // One-time test recap on boot — set TEST_RECAP_ON_BOOT=US (or another
+  // region key) to fire a synthetic recap to RECAP_WEBHOOK_<REGION> (falls
+  // back to WEBHOOK_<REGION>) so you can preview the format. Remove the var
+  // after you've seen it; otherwise it fires once on every restart.
+  if (process.env.TEST_RECAP_ON_BOOT) {
+    const r = process.env.TEST_RECAP_ON_BOOT.toUpperCase();
+    console.log(`[Recap] TEST_RECAP_ON_BOOT=${r} — posting synthetic recap once`);
+    try { await recap.sendTestRecap(r); }
+    catch (e) { console.error(`[Recap] Test recap failed:`, e.message); }
+  }
+
   console.log(`Resale cache: ${resaleCache.size} items, refreshes every ${RESALE_REFRESH_MS / 1000 / 60 / 60}h`);
 
   // Start resale cache refresh in background (waits 60s for first snapshot to build)
