@@ -57,8 +57,9 @@ const FAST_POLL_MS      = Number(process.env.FAST_POLL_MS ?? 3 * 1000);
 const NIGHT_START_HOUR  = Number(process.env.NIGHT_START_HOUR ?? 23); // ET — 11pm
 const NIGHT_END_HOUR    = Number(process.env.NIGHT_END_HOUR   ?? 7);  // ET — 7am
 const REQUEST_TIMEOUT   = 15 * 1000;
-const SNAPSHOT_FILE     = process.env.SNAPSHOT_PATH || 'snapshot.json';
-const RESALE_CACHE_FILE = process.env.RESALE_CACHE_PATH || 'supreme-resale-cache.json';
+const SNAPSHOT_FILE        = process.env.SNAPSHOT_PATH || 'snapshot.json';
+const RESALE_CACHE_FILE    = process.env.RESALE_CACHE_PATH || 'supreme-resale-cache.json';
+const RESTOCK_HISTORY_FILE = process.env.RESTOCK_HISTORY_PATH || 'restock-events.jsonl';
 const RESALE_REFRESH_MS = 12 * 60 * 60 * 1000;  // refresh resale cache every 12 hours
 const RESALE_DELAY_MS   = 1000;                   // 1s between lookups
 
@@ -926,6 +927,35 @@ function saveSnapshot() {
   }
 }
 
+// Persist every confirmed restock to a JSONL history file so we can later
+// analyze patterns (hour-of-day, day-of-week, region distribution, etc.)
+// and tune polling rates based on actual data instead of guesses.
+// Format: one JSON object per line. Easy to query with jq/grep/wc.
+function recordRestockEvent({ region, productTitle, colorway, category, variants, isNew }) {
+  try {
+    const now = new Date();
+    // Local ET hour as a convenience for "what hour do restocks happen?" queries.
+    const et = new Date(now.getTime() + (-4) * 60 * 60 * 1000);
+    const etHour    = et.getUTCHours();
+    const etWeekday = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][et.getUTCDay()];
+    const event = {
+      ts:        now.toISOString(),
+      etHour,
+      etWeekday,
+      region:    region.webhookKey,
+      product:   productTitle,
+      colorway:  colorway || null,
+      category:  category || null,
+      isNew:     !!isNew,
+      sizes:     variants.map(v => v.sizeName),
+      count:     variants.length,
+    };
+    fs.appendFileSync(RESTOCK_HISTORY_FILE, JSON.stringify(event) + '\n');
+  } catch (err) {
+    console.warn(`[History] Failed to record restock event: ${err.message}`);
+  }
+}
+
 function loadSnapshot() {
   try {
     const obj = JSON.parse(fs.readFileSync(SNAPSHOT_FILE, 'utf8'));
@@ -1033,6 +1063,14 @@ async function checkStock(region) {
   } else {
     for (const a of pendingAlerts) {
       onRestockDetected();
+      recordRestockEvent({
+        region,
+        productTitle: a.productTitle,
+        colorway:     a.colorway,
+        category:     a.category,
+        variants:     a.restocked,
+        isNew:        a.restocked.some(r => r.isNew),
+      });
       console.log(`[${ts()}][${region.webhookKey}] 👀 ${a.productTitle} (${a.colorway}) — looking up resale...`);
       const sku         = a.product.variants?.[0]?.sku || null;
       const handle      = a.product.handle || null;
