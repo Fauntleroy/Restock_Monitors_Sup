@@ -22,6 +22,7 @@
 // fastest first.
 
 import fs from 'fs';
+import { buildRecapFlyer } from './recap-flyer.js';
 
 // ─── CONFIG (env-tunable) ────────────────────────────────────────────────────
 
@@ -339,14 +340,55 @@ async function postRecap(regionKey, slot /* 1 | 2 */) {
     description += `\n\n_… and ${truncated} more (showing top ${MAX_RECAP_ITEMS} fastest)_`;
   }
 
+  // Try to render the flyer PNG. If it works, post via multipart so Discord
+  // shows the image as the embed hero. If anything fails, fall back to the
+  // text-only embed so the data still lands.
+  let pngBuffer = null;
+  try {
+    pngBuffer = await buildRecapFlyer({
+      region,
+      rows,
+      totalProducts,
+      totalVariants,
+      dropDate: state.dropDate,
+      delayMin,
+    });
+    console.log(`[${deps.ts()}][${regionKey}] 🖼️ Recap flyer rendered (${pngBuffer.length} bytes)`);
+  } catch (e) {
+    console.error(`[Recap] Flyer render failed — falling back to text embed:`, e.message);
+  }
+
+  if (pngBuffer) {
+    const heroEmbed = {
+      title:     `🧾 ${region.label} Sell-Out Times — Drop +${delayStr}`,
+      color:     0xE74C3C, // Finest red
+      image:     { url: 'attachment://sellout-recap.png' },
+      footer:    { text: `Finest Monitors · ${region.label} · ${rows.length} / ${totalVariants} variants sold · Drop ${state.dropDate}` },
+      timestamp: new Date().toISOString(),
+    };
+    try {
+      const form = new FormData();
+      form.append('payload_json', JSON.stringify({ embeds: [heroEmbed] }));
+      form.append('files[0]', new Blob([pngBuffer], { type: 'image/png' }), 'sellout-recap.png');
+      const res = await fetch(webhook, { method: 'POST', body: form });
+      if (!res.ok) {
+        const txt = await res.text().catch(() => '');
+        throw new Error(`Discord ${res.status}: ${txt.slice(0, 200)}`);
+      }
+      return;
+    } catch (e) {
+      console.error(`[Recap] Multipart upload failed — falling back to text embed:`, e.message);
+    }
+  }
+
+  // Fallback: text-only embed via the queue.
   const embed = {
     title:       `🧾 ${region.label} Sell-Out Times — Drop +${delayStr}`,
     description,
-    color:       0xE74C3C, // Finest red
+    color:       0xE74C3C,
     footer:      { text: `Finest Monitors · ${region.label} · ${rows.length} / ${totalVariants} variants sold · Drop ${state.dropDate}` },
     timestamp:   new Date().toISOString(),
   };
-
   await deps.queueAlert({ webhookUrl: webhook, body: { embeds: [embed] } });
 }
 
