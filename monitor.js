@@ -299,10 +299,6 @@ function parseProductsFromHtml(html) {
 
 // ─── FETCH ALL PRODUCTS ───────────────────────────────────────────────────────
 
-// Hit Shopify's storefront products.json endpoint instead of the rendered
-// HTML collection pages. Same product/variant data, ~5× smaller per request:
-// ~50KB JSON vs ~250KB HTML (no theme, CSS, fonts, asset URLs).
-// Bandwidth was eating ~1GB/day per Supreme service before this swap.
 async function fetchAllProducts(region) {
   const allProducts = [];
   const seenIds = new Set();
@@ -312,12 +308,12 @@ async function fetchAllProducts(region) {
   for (const collection of collections) {
   let page = 1;
   while (true) {
-    const url = `${region.baseUrl}/collections/${collection}/products.json?limit=250&page=${page}`;
-    let raw;
+    const url = `${region.baseUrl}/collections/${collection}?page=${page}`;
+    let html;
     let fetchError;
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
-        raw = await fetchPage(url);
+        html = await fetchPage(url);
         fetchError = null;
         break;
       } catch (err) {
@@ -334,66 +330,31 @@ async function fetchAllProducts(region) {
       break;
     }
 
-    let data;
-    try {
-      data = JSON.parse(raw);
-    } catch (err) {
-      // Any parse failure means we have incomplete data — must NOT commit
-      // to the snapshot or missing variants get re-flagged as new/restock.
+    const data = parseProductsFromHtml(html);
+    if (!data || !data.products || !data.products.length) {
+      // Any parse failure (page 1 OR later pages) means we have incomplete data
+      // for this collection — must NOT commit it to the snapshot, otherwise the
+      // missing variants get re-flagged as new/restock on the next full fetch.
       if (page === 1) {
-        console.error(`[${ts()}][${region.webhookKey}] Page 1 JSON parse failed for ${collection}: ${err.message}`);
+        console.error(`[${ts()}][${region.webhookKey}] Could not find products-json in HTML for ${collection}`);
       } else {
-        console.warn(`[${ts()}][${region.webhookKey}] Page ${page} of ${collection} JSON parse failed — marking cycle incomplete`);
+        console.warn(`[${ts()}][${region.webhookKey}] Page ${page} of ${collection} parsed empty — marking cycle incomplete`);
       }
       complete = false;
       break;
     }
 
-    if (!data || !Array.isArray(data.products)) {
-      if (page === 1) {
-        console.error(`[${ts()}][${region.webhookKey}] Page 1 missing products[] for ${collection}`);
-        complete = false;
-      }
-      break;
-    }
-
-    if (data.products.length === 0) break; // natural end of pagination
-
     for (const product of data.products) {
-      // Normalize Shopify products.json into the shape checkStock expects
-      // (matches the legacy parseProductsFromHtml output exactly):
-      //   { title, handle, url, color, product_type, image, variants: [{id,title,price,available,sku}] }
-      const titleParts = (product.title || '').split(' — ');
-      const colorFromTitle = titleParts.length > 1 ? titleParts[titleParts.length - 1].trim() : null;
-      const imgSrc = product.images?.[0]?.src || null;
-      const normalized = {
-        title:        product.title,
-        handle:       product.handle,
-        url:          `/products/${product.handle}`,
-        // Shopify products.json doesn't expose `color` directly; fall back
-        // to the colorway suffix in the title (e.g. "Work Jacket — Olive").
-        color:        product.color || colorFromTitle,
-        product_type: product.product_type || '',
-        // Strip protocol so existing `https:${p.image}` consumers still work.
-        image:        imgSrc ? imgSrc.replace(/^https?:/, '') : null,
-        variants:     (product.variants || []).map(v => ({
-          id:        v.id,
-          title:     v.title,
-          available: !!v.available,
-          // products.json gives "60.00" string; existing code expects cents (int).
-          price:     v.price != null ? Math.round(parseFloat(v.price) * 100) : null,
-          sku:       v.sku,
-        })),
-      };
-
-      const pid = normalized.handle || normalized.title;
+      const pid = product.url || product.title;
       if (!seenIds.has(pid)) {
         seenIds.add(pid);
-        allProducts.push(normalized);
+        allProducts.push(product);
       }
     }
 
-    if (data.products.length < 250) break; // last page
+    const total = data.allProductsCount || 0;
+    if (seenIds.size >= total || data.products.length < 250) break;
+
     page++;
     await jitter();
   }
