@@ -221,7 +221,17 @@ const proxyPool = (() => {
 // ─── FETCH PAGE ──────────────────────────────────────────────────────────────
 
 async function fetchPage(url) {
-  const proxy = proxyPool.next();
+  // PROXY_MODE controls when we burn IPRoyal bandwidth:
+  //   "always"    (default) — use proxy on every request
+  //   "wave-only"           — use proxy only during wave mode (Thursday drop
+  //                            window or 5 min after any restock). Falls back
+  //                            to direct Railway egress for quiet polls.
+  //                            Saves ~95% of proxy bandwidth at the cost of
+  //                            possibly missing some restocks if direct IPs
+  //                            get Cloudflare-blocked during quiet hours.
+  const proxyMode = (process.env.PROXY_MODE || 'always').toLowerCase();
+  const useProxy = proxyMode === 'always' || (proxyMode === 'wave-only' && inWave);
+  const proxy = useProxy ? proxyPool.next() : null;
   const agent = proxy ? new HttpsProxyAgent(proxy.url) : undefined;
   const ctrl  = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), REQUEST_TIMEOUT);
