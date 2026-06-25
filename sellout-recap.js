@@ -208,18 +208,32 @@ export function observeVariant(region, product, variant, prev, now = Date.now())
 
   const sKey = String(variant.id);
   let s = p.sizes[sKey];
+  // A variant is "new drop" if we'd never seen it before (prev === undefined)
+  // AND the drop instant has actually passed. For NEW DROP items we anchor
+  // droppedMs to the drop instant itself, not to "when we first noticed",
+  // so time-to-sellout matches competitor methodology (closer to drops.gg).
+  // Restocks of legacy items keep droppedMs = first-seen-back time.
+  const isNewDropItem = variant.available && prev === undefined && ctx.dropInstantMs <= now;
   if (!s) {
     s = p.sizes[sKey] = {
       name:         variant.title,
       atcUrl:       `${region.baseUrl}/cart/${variant.id}:1?storefront=true`,
-      droppedMs:    variant.available ? now : null,
+      droppedMs:    variant.available ? (isNewDropItem ? ctx.dropInstantMs : now) : null,
       soldOutMs:    null,
       pendingFalse: 0,
+      wasNewDrop:   isNewDropItem,
     };
+    if (isNewDropItem) p.hasNewDrop = true;
   }
 
   if (variant.available) {
-    if (!s.droppedMs) s.droppedMs = now;
+    if (!s.droppedMs) {
+      s.droppedMs = isNewDropItem ? ctx.dropInstantMs : now;
+      if (isNewDropItem) {
+        s.wasNewDrop = true;
+        p.hasNewDrop = true;
+      }
+    }
     s.soldOutMs    = null; // restock — un-mark
     s.pendingFalse = 0;
   } else {
@@ -320,9 +334,20 @@ async function postRecap(regionKey, slot /* 1 | 2 */) {
 
   // Flatten every sold-out variant into a single ranked list (fastest first).
   // One row per variant — matches the "Times" page format the user referenced.
+  // By default we filter to NEW DROP items only (products where at least one
+  // variant was prev === undefined when first observed during the drop
+  // window). Set RECAP_INCLUDE_RESTOCKS=true to include legacy item restocks
+  // too. Old state files without hasNewDrop markers gracefully fall back to
+  // showing everything (so historical recaps keep working).
+  const includeRestocks = process.env.RECAP_INCLUDE_RESTOCKS === 'true';
+  const anyMarked       = Object.values(state.products).some(p => p.hasNewDrop);
+  const filterToNewDrop = !includeRestocks && anyMarked;
   const rows = [];
   let totalVariants = 0;
+  let totalProducts = 0;
   for (const p of Object.values(state.products)) {
+    if (filterToNewDrop && !p.hasNewDrop) continue;
+    totalProducts++;
     for (const s of Object.values(p.sizes)) {
       if (s.droppedMs) totalVariants++;
       if (s.soldOutMs && s.droppedMs) {
@@ -331,8 +356,6 @@ async function postRecap(regionKey, slot /* 1 | 2 */) {
     }
   }
   rows.sort((a, b) => a.elapsed - b.elapsed);
-
-  const totalProducts = Object.keys(state.products).length;
   const delayMin = slot === 1 ? RECAP1_DELAY_MIN : RECAP2_DELAY_MIN;
   const delayStr = delayMin >= 60 ? `${Math.round(delayMin / 60)}h` : `${delayMin}m`;
 
