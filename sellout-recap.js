@@ -32,6 +32,10 @@ const DROP_MIN              = Number(process.env.DROP_MIN ?? 0);
 // RECAP2 = fuller picture later. Set either to 0 to disable that recap.
 const RECAP1_DELAY_MIN      = Number(process.env.RECAP1_DELAY_MIN ?? 10);
 const RECAP2_DELAY_MIN      = Number(process.env.RECAP2_DELAY_MIN ?? 0);
+// Subtract this many ms from every reported time-to-sellout to compensate for
+// processing lag (proxy round-trip + parse + confirmation-read interval).
+// Default 3s; tune by comparing to drops.gg numbers on real Thursday recaps.
+const LAG_OFFSET_MS         = Number(process.env.RECAP_LAG_OFFSET_MS ?? 3000);
 const SELLOUT_CONFIRM_READS = Math.max(1, Number(process.env.SELLOUT_CONFIRM_READS ?? 2));
 const DROP_STATE_FILE       = process.env.DROP_STATE_PATH || 'drop-state.json';
 const PRE_DROP_TOLERANCE_MIN = 2;          // allow observations starting 2 min before drop
@@ -351,7 +355,8 @@ async function postRecap(regionKey, slot /* 1 | 2 */) {
     for (const s of Object.values(p.sizes)) {
       if (s.droppedMs) totalVariants++;
       if (s.soldOutMs && s.droppedMs) {
-        rows.push({ product: p, size: s, elapsed: s.soldOutMs - s.droppedMs });
+        const elapsed = Math.max(0, s.soldOutMs - s.droppedMs - LAG_OFFSET_MS);
+        rows.push({ product: p, size: s, elapsed });
       }
     }
   }
