@@ -63,11 +63,14 @@ const RESTOCK_HISTORY_FILE = process.env.RESTOCK_HISTORY_PATH || 'restock-events
 const RESALE_REFRESH_MS = 12 * 60 * 60 * 1000;  // refresh resale cache every 12 hours
 const RESALE_DELAY_MS   = 1000;                   // 1s between lookups
 
-// Wave mode: activate Thursday 10:50 AM ET, run until 11:30 AM ET
-const WAVE_START_HOUR   = 10;
-const WAVE_START_MIN    = 50;
-const WAVE_END_HOUR     = 11;
-const WAVE_END_MIN      = 30;
+// Wave mode: Thursday window during which wave polling auto-engages
+// regardless of activity (in ET). Default 10:50–11:30 ET covers the 11:00
+// drop with a tight buffer. Bump to 10:00–12:00 ET (7am–9am PT) if you want
+// a wider proxy-on buffer for slow drops or pre-drop catches.
+const WAVE_START_HOUR   = Number(process.env.WAVE_START_HOUR ?? 10);
+const WAVE_START_MIN    = Number(process.env.WAVE_START_MIN  ?? 50);
+const WAVE_END_HOUR     = Number(process.env.WAVE_END_HOUR   ?? 11);
+const WAVE_END_MIN      = Number(process.env.WAVE_END_MIN    ?? 30);
 const WAVE_COOLDOWN_MS  = Number(process.env.WAVE_COOLDOWN_MS ?? 5 * 60 * 1000); // extend wave Nm after last restock
 
 // ─── STATE ───────────────────────────────────────────────────────────────────
