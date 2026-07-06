@@ -51,9 +51,9 @@ const ACTIVE_REGIONS = process.env.ACTIVE_REGIONS
 // Wave mode auto-engages on restock and stays for WAVE_COOLDOWN_MS after the
 // last restock, then falls back to whichever quiet rate (day vs night) applies.
 // SLOW_POLL_MS is kept as a fallback for either if specifically unset.
-const NIGHT_POLL_MS     = Number(process.env.NIGHT_POLL_MS ?? process.env.SLOW_POLL_MS ?? 60 * 1000);
-const DAY_POLL_MS       = Number(process.env.DAY_POLL_MS   ?? process.env.SLOW_POLL_MS ?? 30 * 1000);
-const FAST_POLL_MS      = Number(process.env.FAST_POLL_MS ?? 3 * 1000);
+const NIGHT_POLL_MS     = Number(process.env.NIGHT_POLL_MS ?? process.env.SLOW_POLL_MS ?? 5 * 60 * 1000);
+const DAY_POLL_MS       = Number(process.env.DAY_POLL_MS   ?? process.env.SLOW_POLL_MS ?? 2 * 60 * 1000);
+const FAST_POLL_MS      = Number(process.env.FAST_POLL_MS ?? 1 * 1000);
 const NIGHT_START_HOUR  = Number(process.env.NIGHT_START_HOUR ?? 23); // ET — 11pm
 const NIGHT_END_HOUR    = Number(process.env.NIGHT_END_HOUR   ?? 7);  // ET — 7am
 const REQUEST_TIMEOUT   = 15 * 1000;
@@ -68,9 +68,9 @@ const RESALE_DELAY_MS   = 1000;                   // 1s between lookups
 // drop with a tight buffer. Bump to 10:00–12:00 ET (7am–9am PT) if you want
 // a wider proxy-on buffer for slow drops or pre-drop catches.
 const WAVE_START_HOUR   = Number(process.env.WAVE_START_HOUR ?? 10);
-const WAVE_START_MIN    = Number(process.env.WAVE_START_MIN  ?? 50);
-const WAVE_END_HOUR     = Number(process.env.WAVE_END_HOUR   ?? 11);
-const WAVE_END_MIN      = Number(process.env.WAVE_END_MIN    ?? 30);
+const WAVE_START_MIN    = Number(process.env.WAVE_START_MIN  ?? 0);
+const WAVE_END_HOUR     = Number(process.env.WAVE_END_HOUR   ?? 12);
+const WAVE_END_MIN      = Number(process.env.WAVE_END_MIN    ?? 0);
 const WAVE_COOLDOWN_MS  = Number(process.env.WAVE_COOLDOWN_MS ?? 5 * 60 * 1000); // extend wave Nm after last restock
 
 // ─── STATE ───────────────────────────────────────────────────────────────────
@@ -232,7 +232,7 @@ async function fetchPage(url) {
   //                            Saves ~95% of proxy bandwidth at the cost of
   //                            possibly missing some restocks if direct IPs
   //                            get Cloudflare-blocked during quiet hours.
-  const proxyMode = (process.env.PROXY_MODE || 'always').toLowerCase();
+  const proxyMode = (process.env.PROXY_MODE || 'wave-only').toLowerCase();
   const useProxy = proxyMode === 'always' || (proxyMode === 'wave-only' && inWave);
   const proxy = useProxy ? proxyPool.next() : null;
   const agent = proxy ? new HttpsProxyAgent(proxy.url) : undefined;
