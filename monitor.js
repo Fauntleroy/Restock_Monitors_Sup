@@ -53,7 +53,7 @@ const ACTIVE_REGIONS = process.env.ACTIVE_REGIONS
 // SLOW_POLL_MS is kept as a fallback for either if specifically unset.
 const NIGHT_POLL_MS     = Number(process.env.NIGHT_POLL_MS ?? process.env.SLOW_POLL_MS ?? 5 * 60 * 1000);
 const DAY_POLL_MS       = Number(process.env.DAY_POLL_MS   ?? process.env.SLOW_POLL_MS ?? 2 * 60 * 1000);
-const FAST_POLL_MS      = Number(process.env.FAST_POLL_MS ?? 1 * 1000);
+const FAST_POLL_MS      = Number(process.env.FAST_POLL_MS ?? 3 * 1000);
 const NIGHT_START_HOUR  = Number(process.env.NIGHT_START_HOUR ?? 23); // ET — 11pm
 const NIGHT_END_HOUR    = Number(process.env.NIGHT_END_HOUR   ?? 7);  // ET — 7am
 const REQUEST_TIMEOUT   = 15 * 1000;
@@ -331,6 +331,14 @@ async function fetchAllProducts(region) {
         break;
       } catch (err) {
         fetchError = err;
+        // Skip retries on upstream rate-limit / block responses (429, 403,
+        // 503). Cloudflare/Shopify send retry-after values in the tens of
+        // seconds, so retrying in 3s just burns proxy bandwidth for
+        // guaranteed failures. Let the next natural poll try again.
+        if (err.message && err.message.startsWith('Blocked:')) {
+          console.warn(`[${ts()}][${region.webhookKey}] Page ${page} blocked — skipping retries to save proxy bandwidth`);
+          break;
+        }
         if (attempt < 3) {
           console.warn(`[${ts()}][${region.webhookKey}] Page ${page} attempt ${attempt} failed — retrying in 3s...`);
           await new Promise(r => setTimeout(r, 3000));
