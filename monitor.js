@@ -1117,7 +1117,10 @@ async function pollCycle() {
   if (inWave)                  mode = `wave (${fmtInterval(FAST_POLL_MS)})`;
   else if (isOvernightHours()) mode = `night (${fmtInterval(NIGHT_POLL_MS)})`;
   else                         mode = `day (${fmtInterval(DAY_POLL_MS)})`;
-  console.log(`[${ts()}] Polling... [${mode}]`);
+  const proxyMode = (process.env.PROXY_MODE || 'wave-only').toLowerCase();
+  const usingProxy = proxyLines.length > 0 && (proxyMode === 'always' || (proxyMode === 'wave-only' && inWave));
+  const proxyTag = proxyLines.length ? (usingProxy ? 'proxy' : 'direct') : 'no-proxy';
+  console.log(`[${ts()}] Polling... [${mode}] [${proxyTag}]`);
 
   const activeRegions = Object.values(REGIONS).filter(r => {
     const w = WEBHOOKS[r.webhookKey];
