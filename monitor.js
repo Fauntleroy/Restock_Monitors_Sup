@@ -741,6 +741,27 @@ async function resaleCacheLoop() {
   }
 }
 
+// ─── CALENDAR HUB FEED (optional) ────────────────────────────────────────────
+// Mirrors restock alerts into the Fauntleroy's Finest hub. No-op unless
+// CALENDAR_API_URL (+ CALENDAR_API_KEY) env vars are set on the service.
+
+const CALENDAR_API_URL = (process.env.CALENDAR_API_URL || '').replace(/\/$/, '');
+const CALENDAR_API_KEY = process.env.CALENDAR_API_KEY || '';
+
+async function postToCalendar(entry) {
+  if (!CALENDAR_API_URL) return;
+  try {
+    const res = await fetch(`${CALENDAR_API_URL}/api/restocks`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': CALENDAR_API_KEY },
+      body:    JSON.stringify(entry),
+    });
+    if (!res.ok) console.error(`[Calendar] ${res.status} posting restock`);
+  } catch (err) {
+    console.error(`[Calendar] Post failed: ${err.message}`);
+  }
+}
+
 // ─── DISCORD RATE LIMIT QUEUE ─────────────────────────────────────────────────
 
 const alertQueue    = [];
@@ -760,6 +781,7 @@ async function queueAlert(payload, cooldownKey) {
     alertCooldown.set(cooldownKey, Date.now());
   }
 
+  if (payload.calendar) postToCalendar(payload.calendar); // fire-and-forget
   alertQueue.push(payload);
   if (!queueRunning) processQueue();
 }
@@ -897,6 +919,16 @@ async function postRestockAlert({ region, productTitle, colorway, category, prod
 
   await queueAlert({
     webhookUrl,
+    calendar: {
+      brand:  'Supreme',
+      region: region.webhookKey,
+      name:   `${productTitle}${colorway ? ` — ${colorway}` : ''}`,
+      price:  fmtP(retailPrice),
+      url:    productUrl,
+      img:    imageUrl,
+      sizes:  restocked.map(v => ({ size: v.sizeName, atc: v.atcUrl || null })),
+      kind:   isNewItem ? 'new' : 'restock',
+    },
     body: {
       embeds: [{
         title:       `${badge}: ${productTitle}${colorway ? ` — ${colorway}` : ''}`,

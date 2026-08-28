@@ -445,6 +445,25 @@ async function sendDiscordAlert(webhookUrl, embed) {
   }
 }
 
+// Mirrors alerts into the Fauntleroy's Finest hub. No-op unless
+// CALENDAR_API_URL (+ CALENDAR_API_KEY) env vars are set on the service.
+const CALENDAR_API_URL = (process.env.CALENDAR_API_URL || '').replace(/\/$/, '');
+const CALENDAR_API_KEY = process.env.CALENDAR_API_KEY || '';
+
+async function postToCalendar(entry) {
+  if (!CALENDAR_API_URL) return;
+  try {
+    const res = await fetch(`${CALENDAR_API_URL}/api/restocks`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': CALENDAR_API_KEY },
+      body:    JSON.stringify(entry),
+    });
+    if (!res.ok) console.error(`[Calendar] ${res.status} posting restock`);
+  } catch (err) {
+    console.error(`[Calendar] Post failed: ${err.message}`);
+  }
+}
+
 async function sendAlert(region, product, variants, isNew) {
   const webhookUrl = WEBHOOKS[region.webhookKey];
   if (!webhookUrl || webhookUrl.startsWith('PASTE')) return;
@@ -533,6 +552,20 @@ async function sendAlert(region, product, variants, isNew) {
     footer: { text: `Palace Monitors | ${region.label} | ${timeStr}` },
     timestamp: new Date().toISOString(),
   };
+
+  postToCalendar({
+    brand:  'Palace',
+    region: region.webhookKey,
+    name:   product.title,
+    price:  priceDisplay !== 'N/A' ? priceDisplay : null,
+    url:    productUrl,
+    img:    imageUrl,
+    sizes:  availableVariants.map(v => ({
+      size: v.title,
+      atc:  `${region.baseUrl}/cart/${extractNumericId(v.id)}:1`,
+    })),
+    kind:   isNew ? 'new' : 'restock',
+  }); // fire-and-forget
 
   await sendDiscordAlert(webhookUrl, embed);
   console.log(`[${ts()}][${region.webhookKey}] 📣 ${tag}: ${product.title}`);
