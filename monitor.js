@@ -30,11 +30,11 @@ const WEBHOOKS = {
 };
 
 const REGIONS = {
-  US: { label:'Supreme US', flag:'🇺🇸', baseUrl:'https://us.supreme.com', collections:['all'], currency:'USD', webhookKey:'US', tz:'America/New_York' },
-  UK: { label:'Supreme UK', flag:'🇬🇧', baseUrl:'https://uk.supreme.com', collections:['all'], currency:'GBP', webhookKey:'UK' },
-  EU: { label:'Supreme EU', flag:'🇪🇺', baseUrl:'https://eu.supreme.com', collections:['all'], currency:'EUR', webhookKey:'EU' },
-  JP: { label:'Supreme JP', flag:'🇯🇵', baseUrl:'https://jp.supreme.com', collections:['all'], currency:'JPY', webhookKey:'JP' },
-  ASIA: { label:'Supreme Asia', flag:'🌏', baseUrl:'https://shop.supreme.com', collections:['all'], currency:'SGD', webhookKey:'ASIA' },
+  US: { label:'Supreme US', flag:'🇺🇸', baseUrl:'https://us.supreme.com', collections:['all','shoes'], currency:'USD', webhookKey:'US', tz:'America/New_York' },
+  UK: { label:'Supreme UK', flag:'🇬🇧', baseUrl:'https://uk.supreme.com', collections:['all','shoes'], currency:'GBP', webhookKey:'UK' },
+  EU: { label:'Supreme EU', flag:'🇪🇺', baseUrl:'https://eu.supreme.com', collections:['all','shoes'], currency:'EUR', webhookKey:'EU' },
+  JP: { label:'Supreme JP', flag:'🇯🇵', baseUrl:'https://jp.supreme.com', collections:['all','shoes'], currency:'JPY', webhookKey:'JP' },
+  ASIA: { label:'Supreme Asia', flag:'🌏', baseUrl:'https://shop.supreme.com', collections:['all','shoes'], currency:'SGD', webhookKey:'ASIA' },
 };
 
 // ACTIVE_REGIONS env var controls which regions this instance monitors
@@ -857,15 +857,33 @@ async function postRestockAlert({ region, productTitle, colorway, category, prod
     { name: '🗂️ Category',             value: category || '—',  inline: true },
     { name: `${region.flag} Region`,   value: region.label || '—',     inline: true },
     { name: '🔗 GOAT',                 value: stockxUrl ? `[Search GOAT](${stockxUrl})` : 'N/A', inline: true },
-    { name: `🔔 Just Restocked (${restocked.length})`,  value: restockedLines || '—', inline: false },
-    {
-      name: hasData
-        ? `📦 All In Stock (${(allInStock || restocked).length}) — 🟢 profit  🔴 at/below retail  ❓ no size data  🔔 just restocked`
-        : `📦 All In Stock (${(allInStock || restocked).length}) — 🆕 New item, resale appears after first sales  🔔 just restocked`,
-      value:  allLines || '—',
-      inline: false,
-    },
   );
+
+  // For new items, all sizes are "just restocked" — skip duplicate "All In Stock" section
+  const showAllInStock = !isNewItem && allInStock && allInStock.length > restocked.length;
+
+  const restockedCapped = restockedLines.length > 1024
+    ? restockedLines.slice(0, restockedLines.lastIndexOf('\n', 1020)) + '\n…'
+    : restockedLines;
+
+  fields.push({
+    name: `🔔 ${isNewItem ? 'In Stock' : 'Just Restocked'} (${restocked.length})`,
+    value: restockedCapped || '—',
+    inline: false,
+  });
+
+  if (showAllInStock) {
+    const allCapped = allLines.length > 1024
+      ? allLines.slice(0, allLines.lastIndexOf('\n', 1020)) + '\n…'
+      : allLines;
+    fields.push({
+      name: hasData
+        ? `📦 All In Stock (${allInStock.length}) — 🟢 profit  🔴 at/below retail  ❓ no size data  🔔 just restocked`
+        : `📦 All In Stock (${allInStock.length}) — 🆕 New item  🔔 just restocked`,
+      value: allCapped || '—',
+      inline: false,
+    });
+  }
 
   // Ensure no empty field values — Discord rejects embeds with empty strings
   for (const f of fields) {
