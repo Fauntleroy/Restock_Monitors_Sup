@@ -332,6 +332,7 @@ async function fetchAllProducts(region) {
   const allProducts = [];
   const seenIds = new Set();
   let complete = true;
+  let softIncomplete = false; // a supplemental collection (not the primary) failed
   const collections = region.collections || [region.collection || 'all'];
 
   for (const collection of collections) {
@@ -363,7 +364,15 @@ async function fetchAllProducts(region) {
     }
     if (fetchError) {
       console.error(`[${ts()}][${region.webhookKey}] Page ${page} failed after 3 attempts: ${fetchError.message}`);
-      complete = false;
+      // Primary collection ('all') failing = no trustworthy data → hard incomplete.
+      // A supplemental collection (e.g. 'shoes', whose items are also in 'all')
+      // failing must NOT block the snapshot commit — that's what kept the
+      // overnight restock wave re-suppressing forever.
+      if (collection === collections[0]) complete = false;
+      else {
+        softIncomplete = true;
+        console.warn(`[${ts()}][${region.webhookKey}] Supplemental collection "${collection}" failed — proceeding without it`);
+      }
       break;
     }
 
@@ -377,7 +386,8 @@ async function fetchAllProducts(region) {
       } else {
         console.warn(`[${ts()}][${region.webhookKey}] Page ${page} of ${collection} parsed empty — marking cycle incomplete`);
       }
-      complete = false;
+      if (collection === collections[0]) complete = false;
+      else softIncomplete = true;
       break;
     }
 
@@ -397,7 +407,7 @@ async function fetchAllProducts(region) {
   }
   } // end collections loop
 
-  return { products: allProducts, complete };
+  return { products: allProducts, complete, softIncomplete };
 }
 
 // ─── RESALE LOOKUP ────────────────────────────────────────────────────────────
@@ -1026,7 +1036,7 @@ function loadSnapshot() {
 
 async function checkStock(region) {
   await jitter();
-  const { products, complete } = await fetchAllProducts(region);
+  const { products, complete, softIncomplete } = await fetchAllProducts(region);
 
   if (products.length < 10) {
     console.warn(`[${ts()}][${region.webhookKey}] Too few products (${products.length}) — skipping cycle`);
@@ -1042,8 +1052,14 @@ async function checkStock(region) {
   }
 
   const pendingStock = new Map(previousStock);
-  for (const [key] of previousStock) {
-    if (key.startsWith(region.webhookKey + ':')) pendingStock.delete(key);
+  // On a soft-incomplete cycle (supplemental collection failed) keep the prior
+  // state of variants we didn't see this cycle instead of pruning them —
+  // otherwise items unique to the failed collection would be wiped and later
+  // re-flagged as fake NEW items when it recovers.
+  if (!softIncomplete) {
+    for (const [key] of previousStock) {
+      if (key.startsWith(region.webhookKey + ':')) pendingStock.delete(key);
+    }
   }
 
   let restocksThisCycle = 0;
@@ -1103,11 +1119,19 @@ async function checkStock(region) {
   // During the wave window (Thursday drop or recent-restock cooldown), legit
   // bursts of 30–70+ items are expected — use a much higher threshold then.
   // Snapshot still updates either way so suppressed cycles re-baseline quietly.
-  const MAX_RESTOCKS_QUIET = Number(process.env.MAX_RESTOCKS_PER_CYCLE ?? 10);
+  const MAX_RESTOCKS_QUIET = Number(process.env.MAX_RESTOCKS_PER_CYCLE ?? 40);
   const MAX_RESTOCKS_WAVE  = Number(process.env.MAX_RESTOCKS_PER_WAVE_CYCLE ?? 250);
   const restockThreshold   = inWave ? MAX_RESTOCKS_WAVE : MAX_RESTOCKS_QUIET;
   if (pendingAlerts.length > restockThreshold) {
     console.warn(`[${ts()}][${region.webhookKey}] ⚠️ Suppressed ${pendingAlerts.length} restock alerts (> ${restockThreshold}, ${inWave ? 'wave' : 'quiet'} mode). Likely snapshot drift — re-baselining without spamming. Items: ${pendingAlerts.slice(0, 5).map(a => a.productTitle).join(', ')}${pendingAlerts.length > 5 ? ', ...' : ''}`);
+    // A moderate burst might be a REAL overnight wave, not drift. Engage wave
+    // mode so the next cycle re-checks in seconds under the wave threshold
+    // (250) and real restocks alert instead of being silenced. True drift
+    // floods (hundreds) stay quiet and re-baseline on the next complete fetch.
+    if (!inWave && pendingAlerts.length <= 100) {
+      console.warn(`[${ts()}][${region.webhookKey}] Burst size plausible for a real wave — engaging wave mode to re-check fast`);
+      onRestockDetected();
+    }
   } else {
     for (const a of pendingAlerts) {
       onRestockDetected();
