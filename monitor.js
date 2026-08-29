@@ -12,6 +12,16 @@ import http   from 'http';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import * as recap          from './sellout-recap.js';
 
+// ─── DISPATCHER ──────────────────────────────────────────────────────────────
+// Some platforms make per-service start commands awkward. Set MONITOR_SCRIPT
+// (e.g. "ftp-monitor.js") and this file hands off to it instead of starting
+// the Supreme monitor. Unset = normal Supreme behavior.
+if (process.env.MONITOR_SCRIPT && process.env.MONITOR_SCRIPT !== 'monitor.js') {
+  console.log(`[Dispatch] MONITOR_SCRIPT=${process.env.MONITOR_SCRIPT} — handing off`);
+  await import(new URL('./' + process.env.MONITOR_SCRIPT, import.meta.url));
+  await new Promise(() => {}); // park forever; the imported monitor owns the process
+}
+
 // ─── HEALTH CHECK SERVER (Railway requires an HTTP listener) ──────────────────
 const PORT = process.env.PORT || 8080;
 http.createServer((req, res) => {
