@@ -276,12 +276,18 @@ async function fetchPage(url) {
       throw new Error(`Blocked: ${res.status}`);
     }
 
-    proxyPool.ok(proxy);
     const finalHost     = new URL(res.url).hostname;
     const requestedHost = new URL(url).hostname;
     if (finalHost !== requestedHost && !['shop.supreme.com', 'us.supreme.com'].includes(requestedHost)) {
-      console.warn(`[Redirect] ${requestedHost} → ${finalHost}`);
+      // Geo-redirect: proxy exited in the wrong country, Supreme bounced us to a
+      // different regional shop. Ingesting that catalog poisons the snapshot
+      // (everything looks "new" → endless wave mode → proxy bandwidth furnace).
+      // Ban this proxy session and fail WITHOUT downloading the body; the retry
+      // rotates to a fresh IP that may exit in-country.
+      console.warn(`[Redirect] ${requestedHost} → ${finalHost} — refusing cross-region body`);
+      throw new Error(`GeoRedirect: ${requestedHost} → ${finalHost}`);
     }
+    proxyPool.ok(proxy);
     return await res.text();
 
   } catch (err) {
