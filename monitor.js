@@ -288,14 +288,19 @@ async function fetchPage(url) {
 
     const finalHost     = new URL(res.url).hostname;
     const requestedHost = new URL(url).hostname;
-    if (finalHost !== requestedHost && !['shop.supreme.com', 'us.supreme.com'].includes(requestedHost)) {
+    if (finalHost !== requestedHost) {
       // Geo-redirect: proxy exited in the wrong country, Supreme bounced us to a
       // different regional shop. Ingesting that catalog poisons the snapshot
-      // (everything looks "new" → endless wave mode → proxy bandwidth furnace).
-      // Ban this proxy session and fail WITHOUT downloading the body; the retry
-      // rotates to a fresh IP that may exit in-country.
-      console.warn(`[Redirect] ${requestedHost} → ${finalHost} — refusing cross-region body`);
-      throw new Error(`GeoRedirect: ${requestedHost} → ${finalHost}`);
+      // (everything looks "new" → endless wave mode → alert floods).
+      // shop.supreme.com (Asia) redirects by design, so it was exempt — but a
+      // landing on another REGIONAL shop is always wrong, exempt host or not
+      // (that loophole silently fed ASIA the US catalog).
+      const landedOnOtherRegion = /^(us|eu|uk|jp)\.supreme\.com$/.test(finalHost);
+      const exemptRequest = ['shop.supreme.com', 'us.supreme.com'].includes(requestedHost);
+      if (landedOnOtherRegion || !exemptRequest) {
+        console.warn(`[Redirect] ${requestedHost} → ${finalHost} — refusing cross-region body`);
+        throw new Error(`GeoRedirect: ${requestedHost} → ${finalHost}`);
+      }
     }
     proxyPool.ok(proxy);
     return await res.text();
