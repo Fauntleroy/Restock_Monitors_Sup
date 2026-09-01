@@ -771,6 +771,8 @@ async function resaleCacheLoop() {
 // Mirrors restock alerts into the Fauntleroy's Finest hub. No-op unless
 // CALENDAR_API_URL (+ CALENDAR_API_KEY) env vars are set on the service.
 
+const ALERT_USERNAME   = process.env.ALERT_USERNAME   || 'Lawrence · Finest Leaks';
+const ALERT_AVATAR_URL = process.env.ALERT_AVATAR_URL || 'https://fauntleroy-drop-calendar-production.up.railway.app/assets/lawrence2-avatar.png';
 const CALENDAR_API_URL = (process.env.CALENDAR_API_URL || '').replace(/\/$/, '');
 const CALENDAR_API_KEY = process.env.CALENDAR_API_KEY || '';
 
@@ -956,6 +958,8 @@ async function postRestockAlert({ region, productTitle, colorway, category, prod
       kind:   isNewItem ? 'new' : 'restock',
     },
     body: {
+      username: ALERT_USERNAME,
+      avatar_url: ALERT_AVATAR_URL,
       embeds: [{
         title:       `${badge}: ${productTitle}${colorway ? ` — ${colorway}` : ''}`,
         url:         productUrl,

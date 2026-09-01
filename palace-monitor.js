@@ -41,6 +41,8 @@ const ACTIVE_REGIONS = process.env.ACTIVE_REGIONS
 const SLOW_POLL_MS      = Number(process.env.SLOW_POLL_MS ?? process.env.POLL_INTERVAL_MS ?? 20 * 1000);
 const FAST_POLL_MS      = Number(process.env.FAST_POLL_MS ?? 3 * 1000);
 const WAVE_COOLDOWN_MS  = Number(process.env.WAVE_COOLDOWN_MS ?? 5 * 60 * 1000);
+const ALERT_USERNAME   = process.env.ALERT_USERNAME   || 'Lawrence · Finest Leaks';
+const ALERT_AVATAR_URL = process.env.ALERT_AVATAR_URL || 'https://fauntleroy-drop-calendar-production.up.railway.app/assets/lawrence2-avatar.png';
 const REQUEST_TIMEOUT   = 15 * 1000;
 const SNAPSHOT_FILE     = process.env.SNAPSHOT_PATH || 'palace-snapshot.json';
 const RESALE_CACHE_FILE = process.env.RESALE_CACHE_PATH || 'palace-resale-cache.json';
@@ -427,7 +429,7 @@ async function sendDiscordAlert(webhookUrl, embed) {
   const res = await fetch(webhookUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ embeds: [embed] }),
+    body: JSON.stringify({ username: ALERT_USERNAME, avatar_url: ALERT_AVATAR_URL, embeds: [embed] }),
   });
 
   if (res.status === 429) {
