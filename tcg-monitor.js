@@ -62,6 +62,53 @@ const KEYWORDS = (process.env.TCG_KEYWORDS ||
 const EXCLUDES = (process.env.TCG_EXCLUDE || 'psa,bgs,cgc,graded,slab')
   .split(',').map(k => k.trim().toLowerCase()).filter(Boolean);
 
+// ─── MSRP BASELINE ───────────────────────────────────────────────────────────
+// English Bandai retail (USD), matched by substring — FIRST match wins, so
+// keep specific patterns above general ones. A listing above the converted
+// baseline (+tolerance) gets flagged red in alerts: retail vs aftermarket at
+// a glance. Override via TCG_MSRP="pattern=price,pattern=price".
+const DEFAULT_MSRP = [
+  ['booster case',    1293.12], // 12 boxes
+  ['carton',          1293.12],
+  ['booster box',     107.76],  // 24 packs × $4.49
+  ['display',         107.76],
+  ['double pack',     9.99],
+  ['sleeved booster', 4.99],
+  ['booster pack',    4.49],
+  ['ultra deck',      29.99],
+  ['starter deck',    11.99],
+];
+const MSRP_TABLE = process.env.TCG_MSRP
+  ? process.env.TCG_MSRP.split(',').map(e => {
+      const i = e.lastIndexOf('=');
+      return [e.slice(0, i).trim().toLowerCase(), Number(e.slice(i + 1))];
+    }).filter(([k, v]) => k && Number.isFinite(v))
+  : DEFAULT_MSRP;
+
+// Static USD→shop-currency factors — a red/green flag doesn't need live FX.
+const FX = { USD: 1, CAD: 1.40, GBP: 0.80, EUR: 0.92 };
+if (process.env.TCG_FX) {
+  for (const e of process.env.TCG_FX.split(',')) {
+    const [k, v] = e.split('=');
+    if (k && Number.isFinite(Number(v))) FX[k.trim().toUpperCase()] = Number(v);
+  }
+}
+
+// Imports (JP/CN/KR product) have no US MSRP — tagged instead of compared.
+const IMPORT_RE = /japanese|japan\b|\bjpn?\b|chinese|\bcn\b|korean|\bkr\b/i;
+const MSRP_TOLERANCE = Number(process.env.TCG_MSRP_TOLERANCE ?? 1.15);
+
+function msrpAssess(title, price, currency) {
+  if (!Number.isFinite(price)) return null;
+  if (IMPORT_RE.test(title || '')) return { kind: 'import' };
+  const t = (title || '').toLowerCase();
+  const hit = MSRP_TABLE.find(([pat]) => t.includes(pat));
+  if (!hit) return null;
+  const local = hit[1] * (FX[currency] ?? 1);
+  const pct = Math.round(((price - local) / local) * 100);
+  return { kind: price > local * MSRP_TOLERANCE ? 'over' : 'retail', msrpLocal: local, pct };
+}
+
 // Best Buy official Products API — the true RETAIL source (MSRP + real ATC
 // links). Dormant until BESTBUY_API_KEY is set (free: developer.bestbuy.com).
 const BESTBUY_API_KEY = process.env.BESTBUY_API_KEY || '';
@@ -292,6 +339,17 @@ async function sendAlert(shop, product, isNew) {
     : Number(product.variants[0]?.price);
   const priceDisplay = Number.isFinite(minPrice) ? `${symbol}${minPrice.toFixed(2)}` : 'N/A';
 
+  // Retail check: red when priced above MSRP, green at/under, globe for imports
+  const assess = msrpAssess(product.title, minPrice, shop.currency);
+  let priceValue = priceDisplay;
+  if (assess?.kind === 'import') {
+    priceValue = `${priceDisplay} · 🌍 import`;
+  } else if (assess?.kind === 'over') {
+    priceValue = `${priceDisplay} 🔴 **+${assess.pct}%** vs retail ${symbol}${assess.msrpLocal.toFixed(2)}`;
+  } else if (assess?.kind === 'retail') {
+    priceValue = `${priceDisplay} 🟢 retail (${symbol}${assess.msrpLocal.toFixed(2)})`;
+  }
+
   const productUrl = product.urlOverride || `${shop.baseUrl}/products/${product.handle}`;
   const imageUrl = product.images?.[0]?.src || null;
 
@@ -318,7 +376,7 @@ async function sendAlert(shop, product, isNew) {
   const color = isNew ? EMBED_COLOR_NEW : EMBED_COLOR_RESTOCK;
 
   const fields = [
-    { name: '🏷️ Price', value: priceDisplay, inline: true },
+    { name: '🏷️ Price', value: priceValue, inline: true },
     { name: '🏪 Shop', value: shop.label, inline: true },
     { name: '📦 In Stock', value: String(availableVariants.length || '—'), inline: true },
     { name: '🛒 ATC', value: (atcLines || '—').slice(0, 1024), inline: false },
@@ -345,7 +403,9 @@ async function sendAlert(shop, product, isNew) {
     brand:  'One Piece',
     region: shop.short || shop.label,
     name:   product.title,
-    price:  priceDisplay !== 'N/A' ? priceDisplay : null,
+    price:  priceDisplay !== 'N/A'
+      ? priceDisplay + (assess?.kind === 'over' ? ' 🔴' : assess?.kind === 'retail' ? ' 🟢' : '')
+      : null,
     url:    productUrl,
     img:    imageUrl,
     sizes:  product.atcOverride
