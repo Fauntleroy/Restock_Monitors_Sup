@@ -27,18 +27,26 @@ const WEBHOOK = process.env.TCG_WEBHOOK || '';
 
 // Known shops: label + currency by domain. Anything unknown gets domain + USD.
 const SHOP_META = {
-  'collectorstore.com':   { label: 'Collector Store', short: 'CS',    currency: 'USD' },
-  'facetofacegames.com':  { label: 'F2F Games',       short: 'F2F',   currency: 'CAD' },
-  'totalcards.net':       { label: 'Total Cards UK',  short: 'TC UK', currency: 'GBP' },
-  'fugitivetoys.com':     { label: 'Fugitive Toys',   short: 'FUGI',  currency: 'USD' },
-  'store.401games.ca':    { label: '401 Games',       short: '401',   currency: 'CAD' },
+  'collectorstore.com':   { label: 'Collector Store', short: 'CS',     currency: 'USD' },
+  'facetofacegames.com':  { label: 'F2F Games',       short: 'F2F',    currency: 'CAD' },
+  'totalcards.net':       { label: 'Total Cards UK',  short: 'TC UK',  currency: 'GBP' },
+  'fugitivetoys.com':     { label: 'Fugitive Toys',   short: 'FUGI',   currency: 'USD' },
+  'store.401games.ca':    { label: '401 Games',       short: '401',    currency: 'CAD' },
+  'safari-zone.com':      { label: 'Safari Zone',     short: 'SAFARI', currency: 'USD' },
+  'gamersguildaz.com':    { label: 'Gamers Guild AZ', short: 'GGAZ',   currency: 'USD' },
+  '763collectibles.com':  { label: '763 Collectibles', short: '763',   currency: 'USD' },
 };
 
+// A domain may appear more than once (one entry per collection).
 const DEFAULT_SHOPS = [
   'collectorstore.com/one-piece-card',
+  'collectorstore.com/games-one-piece',
   'facetofacegames.com/one-piece-sealed',
   'totalcards.net/all-one-piece',
   'fugitivetoys.com/one-piece',
+  'safari-zone.com/one-piece-tcg',
+  'gamersguildaz.com/one-piece-tcg',
+  '763collectibles.com/one-piece',
 ];
 
 const SHOPS = (process.env.TCG_SHOPS
@@ -49,7 +57,7 @@ const SHOPS = (process.env.TCG_SHOPS
   const domain = slash === -1 ? entry : entry.slice(0, slash);
   const handle = slash === -1 ? 'all' : entry.slice(slash + 1);
   const meta = SHOP_META[domain] || { label: domain.replace(/^(store|www)\./, ''), currency: 'USD' };
-  return { key: domain, domain, handle, baseUrl: `https://${domain}`, ...meta };
+  return { key: `${domain}/${handle}`, domain, handle, baseUrl: `https://${domain}`, ...meta };
 });
 
 // Sealed product only by default — card singles restock constantly and would
@@ -115,7 +123,7 @@ const BESTBUY_API_KEY = process.env.BESTBUY_API_KEY || '';
 const BESTBUY_QUERY   = process.env.BESTBUY_QUERY || 'one piece card game';
 const BESTBUY_SHOP    = { key: 'bestbuy', label: 'Best Buy', short: 'BEST BUY', currency: 'USD', baseUrl: 'https://www.bestbuy.com' };
 
-const SLOW_POLL_MS     = Number(process.env.SLOW_POLL_MS ?? 60 * 1000);
+const SLOW_POLL_MS     = Number(process.env.SLOW_POLL_MS ?? 30 * 1000);
 const FAST_POLL_MS     = Number(process.env.FAST_POLL_MS ?? 15 * 1000);
 const WAVE_COOLDOWN_MS = Number(process.env.WAVE_COOLDOWN_MS ?? 5 * 60 * 1000);
 const ALERT_USERNAME   = process.env.ALERT_USERNAME   || 'Lawrence · Finest Leaks';
@@ -327,7 +335,9 @@ async function postToCalendar(entry) {
 }
 
 async function sendAlert(shop, product, isNew) {
-  const cooldownKey = `${shop.key}:${product.title}`;
+  // Domain-level cooldown: the same product listed in two watched collections
+  // of one shop must not double-fire.
+  const cooldownKey = `${shop.domain}:${product.title}`;
   if (isCoolingDown(cooldownKey)) return;
   cooldowns[cooldownKey] = Date.now();
   onRestockDetected();
