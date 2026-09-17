@@ -338,7 +338,11 @@ async function fetchAllProducts(region) {
   const seenIds = new Set();
   let complete = true;
   let softIncomplete = false; // a supplemental collection (not the primary) failed
-  const collections = region.collections || [region.collection || 'all'];
+  let collections = region.collections || [region.collection || 'all'];
+
+  // In wave mode, only poll primary collection to halve request rate —
+  // supplemental collections (shoes) overlap with 'all' anyway
+  if (inWave && collections.length > 1) collections = [collections[0]];
 
   for (const collection of collections) {
   let page = 1;
@@ -1043,13 +1047,29 @@ function loadSnapshot() {
 
 // ─── STOCK CHECK ──────────────────────────────────────────────────────────────
 
+const regionBackoff = {};
+
 async function checkStock(region) {
+  const rk = region.webhookKey;
+  const bo = regionBackoff[rk];
+  if (bo && Date.now() < bo.until) return;
+
   await jitter();
   const { products, complete, softIncomplete } = await fetchAllProducts(region);
 
   if (products.length < 10) {
-    console.warn(`[${ts()}][${region.webhookKey}] Too few products (${products.length}) — skipping cycle`);
+    const prev = regionBackoff[rk] || { streak: 0 };
+    prev.streak++;
+    const delaySec = Math.min(prev.streak * 10, 60);
+    prev.until = Date.now() + delaySec * 1000;
+    regionBackoff[rk] = prev;
+    console.warn(`[${ts()}][${rk}] Too few products (${products.length}) — backing off ${delaySec}s (streak ${prev.streak})`);
     return;
+  }
+
+  if (regionBackoff[rk]) {
+    console.log(`[${ts()}][${rk}] ✅ Recovered after ${regionBackoff[rk].streak} blocked cycles`);
+    delete regionBackoff[rk];
   }
 
   // Log first 3 product names for region verification
